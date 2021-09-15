@@ -2,11 +2,12 @@
 
 **SVGNest**: A browser-based vector nesting tool.
 
-**Demo:** http://svgnest.com
+**Demo:** [svgnest](http://svgnest.com)
 
 (requires SVG and webworker support). Mobile warning: running the demo is CPU intensive.
 
 references (PDF):
+
 - [López-Camacho *et al.* 2013](http://www.cs.stir.ac.uk/~goc/papers/EffectiveHueristic2DAOR2013.pdf)
 - [Kendall 2000](http://www.graham-kendall.com/papers/k2001.pdf)
 - [E.K. Burke *et al.* 2006](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.440.379&rep=rep1&type=pdf)
