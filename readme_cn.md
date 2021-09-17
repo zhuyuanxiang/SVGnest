@@ -20,7 +20,8 @@ references (PDF):
 
 我们需要将所有的字母排放到正文形中，尽可能的少使用材料。如果一个正方形不能满足，我们可以找到正方形需求的最小数量。
 
-在CNC的世界里面这个称为[排样](http://sigmanest.com/)，有[软件](http://www.mynesting.com/)在为[工业界客户](http://www.hypertherm.com/en/Products/Automated_cutting/Nesting_software/) 做[这件事](http://www.autodesk.com/products/trunest/overview)，并且[非常昂贵](http://www.nestfab.com/pricing/)。
+在CNC的世界里面这个称为[排样](http://sigmanest.com/)，有[软件](http://www.mynesting.com/)在为[工业界客户](http://www.hypertherm.com/en/Products/Automated_cutting/Nesting_software/)
+做[这件事](http://www.autodesk.com/products/trunest/overview)，并且[非常昂贵](http://www.nestfab.com/pricing/)。
 
 SVGnest是一个免费的、开源的替代品，它使用[^Burke,2006]中的解决这个问题，使用基因算法用于全局优化。它可以工作在任意形状的容器和凹面部件下，并且效果与存在的商业软件可以看齐。
 
@@ -71,7 +72,7 @@ SVGnest是一个免费的、开源的替代品，它使用[^Burke,2006]中的解
 
 如果大的“C”最后排放，凸的空间就没有办法使用，因为所有的部件都已经被排放完成。
 
-为了解决这个问题，我们使用“首次使用降充”启发式算法。大的部件先排放，小的部分后排放。这个是符合直觉的，因为小的部件倾向于扮演“沙子“的角色填充大的部件留下的空隙。
+为了解决这个问题，我们使用“首次适应降序”启发式算法。大的部件先排放，小的部分后排放。这个是符合直觉的，因为小的部件倾向于扮演“沙子“的角色填充大的部件留下的空隙。
 
 ![Good insertion order](http://svgnest.com/github/goodnest.png)
 
@@ -98,12 +99,16 @@ Performs similarly to commercial software, after both have run for about 5 minut
 ## Configuration parameters
 
 - **Space between parts:** Minimum space between parts (eg. for laser kerf, CNC offset etc.)
-- **Curve tolerance:** The maximum error allowed for linear approximations of Bezier paths and arcs, in SVG units or "pixels". Decrease this value if curved parts appear to slightly overlap.
-- **Part rotations:** The *possible* number of rotations to evaluate for each part. eg. 4 for only the cardinal directions. Larger values may improve results, but will be slower to converge.
+- **Curve tolerance:** The maximum error allowed for linear approximations of Bezier paths and arcs, in SVG units or "
+  pixels". Decrease this value if curved parts appear to slightly overlap.
+- **Part rotations:** The *possible* number of rotations to evaluate for each part. eg. 4 for only the cardinal
+  directions. Larger values may improve results, but will be slower to converge.
 - **GA population:** The population size for the Genetic Algorithm
 - **GA mutation rate:** The probability of mutation for each gene or part placement. Values from 1-50
-- **Part in part:** When enabled, places parts in the holes of other parts. This is off by default as it can be resource intensive
-- **Explore concave areas:** When enabled, solves the concave edge case at a cost of some performance and placement robustness:
+- **Part in part:** When enabled, places parts in the holes of other parts. This is off by default as it can be resource
+  intensive
+- **Explore concave areas:** When enabled, solves the concave edge case at a cost of some performance and placement
+  robustness:
 
 ![Concave flag example](http://svgnest.com/github/concave.png)
 
@@ -116,4 +121,5 @@ Performs similarly to commercial software, after both have run for about 5 minut
 
 # 参考文献
 
-[^Burke,2006]:Burke E K, Hellier R S R, Kendall G, et al. Complete and robust no-fit polygon generation for the irregular stock cutting problem[J]. European Journal of Operational Research, 2007, 179(1): 27-49.
+[^Burke,2006]:Burke E K, Hellier R S R, Kendall G, et al. Complete and robust no-fit polygon generation for the
+irregular stock cutting problem[J]. European Journal of Operational Research, 2007, 179(1): 27-49.

@@ -1,907 +1,885 @@
-<!doctype html>
+<!DOCTYPE html>
 <html itemscope="" itemtype="http://schema.org/WebPage" lang="en">
-	<head>
-		<link rel="shortcut icon" href="/favicon32.gif" type="image/x-icon" sizes="32x32" />
-		<link rel="shortcut icon" href="/favicon16.gif" type="image/x-icon" sizes="16x16" />
-		<meta name="viewport" content="width=device-width, initial-scale=1">
-		
-		<title>SVGnest - Free and Open Source nesting for CNC machines, lasers and plasma cutters</title>
-		
-		<meta name="description" content="A completely free and open source application for automatic nesting. Comes with advanced features like part-in-part nesting and concave area detection." />
-		
-		<link type="text/css" rel="stylesheet" media="all" href="font/latolatinfonts.css" />
-		<link rel="stylesheet" type="text/css" href="style.css" />
-		
-		<script src="util/pathsegpolyfill.js"></script>
-		<script src="util/matrix.js"></script>
-		<script src="util/domparser.js"></script>
-		<script src="util/clipper.js"></script>
-		<script src="util/parallel.js"></script>
-		<script src="util/geometryutil.js"></script>
-		<script src="util/placementworker.js"></script>
-		<script src="svgparser.js"></script>
-		<script src="svgnest.js"></script>
-		
-		<script src="util/filesaver.js"></script>
-		
-		<script>
-		// UI-specific stuff, button clicks go here
-		function ready(fn){
-			if (document.readyState != 'loading'){
-				fn();
-			}
-			else {
-				document.addEventListener('DOMContentLoaded', fn);
-			}
-		}
-		
-		ready(function(){
-			// FAQ toggle
-			var faq = document.getElementById('faq');
-			var faqbutton = document.getElementById('faqbutton');
-			
-			var faqvisible = false;
-			faqbutton.onclick = function(e){
-				if(!faqvisible){
-					faq.setAttribute('style','display: block');
-				}
-				else{
-					faq.removeAttribute('style');
-				}
-				faqvisible = !faqvisible;
-			};
-			
-			function hideSplash(){
-				var splash = document.getElementById('splash');
-				var svgnest = document.getElementById('svgnest');
-				if(splash){
-					splash.remove();
-				}
-				svgnest.setAttribute('style','display: block');
-			}
-			
-			var demo = document.getElementById('demo');
-			var upload = document.getElementById('upload');
-			var display = document.getElementById('select');
-			
-			demo.onclick = function(){
-				try{
-					var svg = window.SvgNest.parsesvg(display.innerHTML);
-					display.innerHTML = '';
-					display.appendChild(svg);
-				}
-				catch(e){
-					message.innerHTML = e;
-					message.className = 'error animated bounce';
-					return;
-				}			
-				
-				hideSplash();
-				message.innerHTML = 'Click on the outline to use as the bin';
-				message.className = 'active animated bounce';
-				
-				attachSvgListeners(svg);
-			};
-			
-			var message = document.getElementById('message');
-			
-			if(!document.createElementNS || !document.createElementNS('http://www.w3.org/2000/svg', 'svg').createSVGRect){
-				message.innerHTML = 'Your browser does not have SVG support';
-				message.className = 'error animated bounce';
-				return
-			}
-			
-			if (!window.SvgNest) {
-				message.innerHTML = "Couldn't initialize SVGnest";
-				message.className = 'error animated bounce';
-				return;
-			}
-			
-			if(!window.File || !window.FileReader){
-				message.innerHTML = 'Your browser does not have file upload support';
-				message.className = 'error animated bounce';
-				return
-			}
-			
-			if(!window.Worker){
-				message.innerHTML = 'Your browser does not have web worker support';
-				message.className = 'error animated bounce';
-				return
-			}
-			
-			// button clicks
-			var upload = document.getElementById('upload');
-			var start = document.getElementById('start');
-			var download = document.getElementById('download');
-			var startlabel = document.getElementById('startlabel');
-			var fileinput = document.getElementById('fileinput');
-			
-			var config = document.getElementById('config');
-			var configbutton = document.getElementById('configbutton');
-			var configsave = document.getElementById('configsave');
-			
-			var zoomin = document.getElementById('zoominbutton');
-			var zoomout = document.getElementById('zoomoutbutton');
-			var exit = document.getElementById('exitbutton');
-			
-			var isworking = false;
-			
-			start.onclick = function(){
-				if(this.className == 'button start disabled'){
-					return false;
-				}
-				iterations = 0;
-				if(isworking){
-					stopnest();
-				}
-				else{
-					startnest();
-				}
-				
-				display.className = 'disabled';
-				document.getElementById('info_time').setAttribute('style','display: none');
-			};
-			
-			function startnest(){
-				// Once started, don't allow this anymore
-				document.removeEventListener('dragover', FileDragHover, false);
-				document.removeEventListener('dragleave', FileDragHover, false);
-				document.removeEventListener('drop', FileDrop, false);
-				
-				SvgNest.start(progress, renderSvg);
-				startlabel.innerHTML = 'Stop Nest';
-				start.className = 'button spinner';
-				configbutton.className = 'button config disabled';
-				config.className = '';
-				zoomin.className = 'button zoomin disabled';
-				zoomout.className = 'button zoomout disabled';
-				
-				var svg = document.querySelector('#select svg');
-				if(svg){
-					svg.removeAttribute('style');
-				}
-				
-				isworking = true;
-			}
-			
-			function stopnest(){
-				SvgNest.stop();
-				startlabel.innerHTML = 'Start Nest';
-				start.className = 'button start';
-				configbutton.className = 'button config';
-				
-				isworking = false;
-			}
-			
-			// config
-			var configvisible = false;
-			configbutton.onclick = function(){
-				if(this.className == 'button config disabled'){
-					return false;
-				}
-				if(!configvisible){
-					config.className = 'active';
-					configbutton.className = 'button close';
-				}
-				else{
-					config.className = '';
-					configbutton.className = 'button config';
-				}
-				configvisible = !configvisible;
-				
-				return false;
-			}
-			
-			configsave.onclick = function(){
-				var c = {};
-				var inputs = document.querySelectorAll('#config input');
-				for(var i=0; i<inputs.length; i++){
-					var key = inputs[i].getAttribute('data-config');
-					if(inputs[i].getAttribute('type') == 'text'){
-						c[key] = inputs[i].value;
-					}
-					else if(inputs[i].getAttribute('type') == 'checkbox'){
-						c[key] = inputs[i].checked;
-					}
-				}
-				
-				window.SvgNest.config(c);
-				
-				// new configs will invalidate current nest
-				if(isworking){
-					stopnest();
-				}
-				configvisible = false;
-				config.className = '';
-				return false;
-			}
-			
-			upload.onclick = function(){
-				fileinput.click();
-			}
-			document.addEventListener('dragover', FileDragHover, false);
-			document.addEventListener('dragleave', FileDragHover, false);
-			document.addEventListener('drop', FileDrop, false);
-			function FileDragHover(e){
-				e.stopPropagation();
-				e.preventDefault();
-				upload.style.backgroundColor = (e.type == "dragover" ? "#d7e9b7" : "");
-			}
-			function FileDrop(e){
-				e.stopPropagation(); // Make sure not to replace website by file
-				e.preventDefault();
-				handleFile(e.dataTransfer.files[0]);
-			}
-			
-			
-			download.onclick = function(){
-				if(download.className == 'button download disabled'){
-					return false;
-				}
-				
-				var bins = document.getElementById('bins');
-				
-				if(bins.children.length == 0){
-					message.innerHTML = 'No SVG to export';
-					message.className = 'error animated bounce';
-					return
-				}
-				
-				var svg;
-				svg = display.querySelector('svg');
-				
-				if(!svg){
-					svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-				}
-				
-				svg = svg.cloneNode(false);
-				
-				// maintain stroke, fill etc of input
-				if(SvgNest.style){
-					svg.appendChild(SvgNest.style);
-				}
-				
-				var binHeight = parseInt(bins.children[0].getAttribute('height'));
-				
-				for(var i=0; i<bins.children.length; i++){
-					var b = bins.children[i];
-					var group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-					group.setAttribute('transform', 'translate(0 '+binHeight*1.1*i+')');
-					for(var j=0; j<b.children.length; j++){
-						group.appendChild(b.children[j].cloneNode(true));
-					}
-					
-					svg.appendChild(group);
-				}
-				
-				var output;
-				if(typeof XMLSerializer != 'undefined'){
-					output = (new XMLSerializer()).serializeToString(svg);
-				}
-				else{
-					output = svg.outerHTML;
-				}
-				
-				var blob = new Blob([output], {type: "image/svg+xml;charset=utf-8"});
-				saveAs(blob, "SVGnest-output.svg");
-			}
-			
-			var zoomlevel = 1.0;
-			
-			zoomin.onclick = function(){
-				if(this.className == 'button zoomin disabled'){
-					return false;
-				}
-				zoomlevel *= 1.2;
-				var svg = document.querySelector('#select svg');
-				if(svg){
-					svg.setAttribute('style', 'transform-origin: top left; transform:scale('+zoomlevel+'); -webkit-transform:scale('+zoomlevel+'); -moz-transform:scale('+zoomlevel+'); -ms-transform:scale('+zoomlevel+'); -o-transform:scale('+zoomlevel+');');
-				}
-			}
-			
-			zoomout.onclick = function(){
-				if(this.className == 'button zoomout disabled'){
-					return false;
-				}
-				zoomlevel *= 0.8;
-				if(zoomlevel < 0.02){
-					zoomlevel = 0.02;
-				}
-				var svg = document.querySelector('#select svg');
-				if(svg){
-					svg.setAttribute('style', 'transform-origin: top left; transform:scale('+zoomlevel+'); -webkit-transform:scale('+zoomlevel+'); -moz-transform:scale('+zoomlevel+'); -ms-transform:scale('+zoomlevel+'); -o-transform:scale('+zoomlevel+');');
-				}
-			}
-			
-			exit.onclick = function(){
-				location.reload();
-			}
-			
-			fileinput.onchange = function(e){
-				handleFile(e.target.files[0]);
-			}
-			
-			
-			function handleFile(file){
-				if(!file){
-					return;
-				}
 
-				if(!file.type || (file.type.search('svg') < 0 && file.type.search('xml') < 0 &&  file.type.search('text') < 0)){
-					message.innerHTML = 'Only SVG files allowed';
-					message.className = 'error animated bounce';
-					return
-				}
-				
-				var reader = new FileReader();
-				var input = this;
-				reader.onload = function(e) {
-					input.value = null;
-					
-					if(reader.result){
-						try{
-							var svg = window.SvgNest.parsesvg(reader.result);
-							{
-								var wholeSVG = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-								// Copy relevant scaling info
-								wholeSVG.setAttribute('width',svg.getAttribute('width'));
-								wholeSVG.setAttribute('height',svg.getAttribute('height'));
-								wholeSVG.setAttribute('viewBox',svg.getAttribute('viewBox'));
-								var rect = document.createElementNS(wholeSVG.namespaceURI,'rect');
-								rect.setAttribute('x', wholeSVG.viewBox.baseVal.x);
-								rect.setAttribute('y', wholeSVG.viewBox.baseVal.x);
-								rect.setAttribute('width', wholeSVG.viewBox.baseVal.width);
-								rect.setAttribute('height', wholeSVG.viewBox.baseVal.height);
-								rect.setAttribute('class', 'fullRect');
-								wholeSVG.appendChild(rect);
-							}
-							display.innerHTML = '';
-							display.appendChild(wholeSVG); // As a default bin in background
-							display.appendChild(svg);
-						}
-						catch(e){
-							message.innerHTML = e;
-							message.className = 'error animated bounce';
-							return;
-						}					
-						
-						hideSplash();
-						message.innerHTML = 'Click on the outline to use as the bin';
-						message.className = 'active animated bounce';
-						start.className = 'button start disabled';
-						
-						attachSvgListeners(svg);
-						attachSvgListeners(wholeSVG);
-					}
-				}
-				
-				reader.readAsText(file);
-			};
-			
-			function attachSvgListeners(svg){
-				// attach event listeners
-				for(var i=0; i<svg.childNodes.length; i++){
-					var node = svg.childNodes[i];
-					if(node.nodeType == 1){
-						node.onclick = function(){
-							if(display.className == 'disabled'){
-								return;
-							}
-							var currentbin = document.querySelector('#select .active');
-							if(currentbin){
-								var className = currentbin.getAttribute('class').replace('active', '').trim();
-								if(!className)
-									currentbin.removeAttribute('class');
-								else
-									currentbin.setAttribute('class', className);
-							}
-							
-							window.SvgNest.setbin(this);
-							this.setAttribute('class',(this.getAttribute('class') ? this.getAttribute('class')+' ' : '') + 'active');
-							
-							start.className = 'button start animated bounce';
-							message.className = '';
-						}
-					}
-				}
-			}
-			
-			var prevpercent = 0;
-			var startTime = null;
-			
-			function progress(percent){
-				var transition = percent > prevpercent ? '; transition: width 0.1s' : '';
-				document.getElementById('info_progress').setAttribute('style','width: '+Math.round(percent*100)+'% ' + transition);
-				document.getElementById('info').setAttribute('style','display: block');
-				
-				prevpercent = percent;
-				
-				var now = new Date().getTime();
-				if(startTime && now){
-					var diff = now-startTime;
-					// show a time estimate for long-running placements
-					var estimate = (diff/percent)*(1-percent);
-					document.getElementById('info_time').innerHTML = millisecondsToStr(estimate)+' remaining';
-					
-					if(diff > 5000 && percent < 0.3 && percent > 0.02 && estimate > 10000){
-						document.getElementById('info_time').setAttribute('style','display: block');
-					}
-				}
-				
-				if(percent > 0.95 || percent < 0.02){
-					document.getElementById('info_time').setAttribute('style','display: none');
-				}
-				if(percent < 0.02){
-					startTime = new Date().getTime();
-				}
-			}
-			
-			var iterations = 0;
-			
-			function renderSvg(svglist, efficiency, placed, total){
-				iterations++;
-				document.getElementById('info_iterations').innerHTML = iterations;
-				
-				if(!svglist || svglist.length == 0){
-					return;
-				}
-				var bins = document.getElementById('bins');
-				bins.innerHTML = '';
-				
-				for(var i=0; i<svglist.length; i++){
-					if(svglist.length > 2){
-						svglist[i].setAttribute('class','grid');
-					}
-					bins.appendChild(svglist[i]);
-				}
-				
-				if(efficiency || efficiency === 0){
-					document.getElementById('info_efficiency').innerHTML = Math.round(efficiency*100);
-				}
+<head>
+    <link rel="shortcut icon" href="/favicon32.gif" type="image/x-icon" sizes="32x32" />
+    <link rel="shortcut icon" href="/favicon16.gif" type="image/x-icon" sizes="16x16" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-				document.getElementById('info_placed').innerHTML = placed+'/'+total;
-				
-				document.getElementById('info_placement').setAttribute('style','display: block');
-				display.setAttribute('style','display: none');
-				download.className = 'button download animated bounce';
-			}
-			
-			message.onclick = function(e){
-				this.className='';
-			}
-			
-			function millisecondsToStr (milliseconds) {
-				function numberEnding (number) {
-					return (number > 1) ? 's' : '';
-				}
+    <title>
+        SVGnest - Free and Open Source nesting for CNC machines, lasers and plasma cutters
+    </title>
 
-				var temp = Math.floor(milliseconds / 1000);
-				var years = Math.floor(temp / 31536000);
-				if (years) {
-					return years + ' year' + numberEnding(years);
-				}
-				var days = Math.floor((temp %= 31536000) / 86400);
-				if (days) {
-					return days + ' day' + numberEnding(days);
-				}
-				var hours = Math.floor((temp %= 86400) / 3600);
-				if (hours) {
-					return hours + ' hour' + numberEnding(hours);
-				}
-				var minutes = Math.floor((temp %= 3600) / 60);
-				if (minutes) {
-					return minutes + ' minute' + numberEnding(minutes);
-				}
-				var seconds = temp % 60;
-				if (seconds) {
-					return seconds + ' second' + numberEnding(seconds);
-				}
-				return 'less than a second';
-			}
-		});
-		</script>
-	</head>
-	<body>
-		<div id="splash">
-			<!-- a small splash page that explains what this thing is -->
-			<img src="img/logo.svg" alt="SVGnest" class="logo" />
-			<h1 class="title">SVGnest</h1>
-			<em class="subscript">Open Source nesting</em>
-			
-			<ul class="nav">
-				<li class="button start" id="demo">Demo</li>
-				<li class="button upload" id="upload">Upload SVG</li>
-				<li class="button code" onclick="window.open('https://github.com/Jack000/SVGnest')"><a href="https://github.com/Jack000/SVGnest" target="_blank">Github</a></li>
-				<li class="button" id="faqbutton">FAQ</li>
-			</ul>
-			
-			<div id="faq">
-				<h1>What exactly is "nesting"?</h1>
-				<p>If you have some parts to cut out of a piece of metal/plastic/wood etc, you'd want to arrange the parts to use as little material as possible. This is a common problem if you use a laser cutter, plasma cutter, or CNC machine.</p>
-				<p>In computer terms this is called the irregular bin-packing problem</p>
-				
-				<h1>How much does it cost?</h1>
-				<p>It's free and open source. The code and implementation details are on <a href="https://github.com/Jack000/SVGnest" target="_blank">Github</a></p>
-				
-				<h1>Does it use inches? mm?</h1>
-				<p>SVG has its internal units, the distance related fields in the settings use SVG units, ie. pixels. The conversion between a pixel and real units depend on the exporting software, but it's typically 72 pixels = 1 inch</p>
-				
-				<h1>My SVG text/image doesn't show up?</h1>
-				<p>Nesting only works for closed shapes, so SVG elements that don't represent closed shapes are removed. Convert text and any other elements to outlines first. Ensure that outlines do not intersect or overlap eachother. Outlines that are inside other outlines are considered holes.</p>
-				
-				<h1>It doesn't ever stop?</h1>
-				<p>The software will continuously look for better solutions until you press the stop button. You can stop at any time and download the SVG file.</p>
-				
-				<h1>Some parts seem to slightly overlap?</h1>
-				<p>Curved shapes are approximated with line segments. For a more accurate nest with curved parts, decrease the curve tolerance parameter in the configuration.</p>
-				
-				<h1>I need help?</h1>
-				<p>Add an issue on Github or contact me personally: <a href="http://jack.works">jack.works</a>
-			</div>
-		</div>
-		
-		<div id="svgnest">
-					
-			<div id="controls">
-				<ul class="nav">
-				<li class="button start disabled" id="start"><span id="startlabel">Start Nest</span></li>
-				<li class="button download disabled" id="download">Download SVG</li>
-				<li class="button config" id="configbutton"></li>
-				<li class="button zoomin" id="zoominbutton"></li>
-				<li class="button zoomout" id="zoomoutbutton"></li>
-				<li class="button exit" id="exitbutton"></li>
-				</ul>
-				
-				<div id="config">
-					<div id="configwrapper">
-						<input type="text" value="0" data-config="spacing" />
-						<h3>Space between parts</h3><span class="tooltip" title="The space between parts in SVG units (conversion depends on exporting software but usually 1 SVG unit = 1px = 1/72 inches = 0.3527777~ mm)">?</span>
-						
-						<input type="text" value="0.3" data-config="curveTolerance" />
-						<h3>Curve tolerance</h3><span class="tooltip" title="The maximum error allowed when converting Beziers and arcs to line segments. In SVG units. Smaller tolerances will take longer to compute">?</span>
-						
-						<input type="text" value="4" data-config="rotations" />
-						<h3>Part rotations</h3><span class="tooltip" title="Number of rotations to consider when inserting a part. Larger rotations will take longer to compute, and may also take longer to converge to a good solution">?</span>
-						
-						<input type="text" value="10" data-config="populationSize" />
-						<h3>GA population</h3><span class="tooltip" title="The number of solutions in the Genetic Algorithm population. Larger populations will converge slower but may result in better solutions in the long run">?</span>
-						
-						<input type="text" value="10" data-config="mutationRate" />
-						<h3>GA mutation rate</h3><span class="tooltip" title="Mutation rate (in percent) at each generation of the Genetic Algorithm. A 100% mutation rate is equivalent to random sampling">?</span>
-						
-						<input type="checkbox" class="checkbox" data-config="useHoles" />
-						<h3>Part in Part</h3><span class="tooltip" title="Place parts in the holes of other parts. This will take much longer to compute ">?</span>
-						
-						<input type="checkbox" class="checkbox" data-config="exploreConcave" />
-						<h3>Explore concave areas</h3><span class="tooltip" title="Try to solve for enclosed concave areas (eg. a jigsaw puzzle piece) This will take much longer to compute ">?</span>
-						
-						<a href="#" class="button" id="configsave">Save Settings</a>
-					</div>
-				</div>
-			</div>
-			
-			<div class="sidebar">				
-				<div id="info">				
-				<h2 id="info_time"></h2>
-				<div class="progress"><div class="progress_inner" id="info_progress"></div></div>
-				<span class="subscript">Placement progress</span>
-				
-				<div id="info_placement">
-					<div class="column left">
-						<h1 class="label"><span id="info_efficiency"></span><sup>%</sup></h1>
-						<span class="subscript">Material Utilization</span>
-					</div>
-					
-					<div class="column right">
-						<h1 class="label" id="info_iterations"></h1>
-						<span class="subscript">Iterations</span>
-					</div>
-					
-					<div class="column left">
-						<h1 class="label"><span id="info_placed"></span></h1>
-						<span class="subscript">Parts placed</span>
-					</div>
-				</div>
-				</div>				
-			</div>
-			
-			<div id="select">
-			<svg version="1.1" id="svg2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="1147.592px" height="1397.27px" viewBox="0 0 1147.592 1397.27" enable-background="new 0 0 1147.592 1397.27" xml:space="preserve">
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="684.045,443.734 688.396,447.215 
-	666.488,450.935 666.488,432.651 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="697.067,404.901 697.067,415.601 
-	709.719,415.905 710.293,406.067 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="723.908,440.886 715.362,442.463 
-	709.719,435.85 712.627,427.66 721.17,426.079 726.81,432.692 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="617.292,458.369 618.742,465.049 
-	599.735,465.566 599.735,447.28 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="619.963,428.025 619.963,438.722 
-	633.189,438.467 633.189,429.192 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="646.805,464.01 638.259,465.587 
-	632.618,458.974 635.523,450.784 644.069,449.207 649.706,455.819 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="777.062,428.025 746.983,457.397 
-	760.468,481.256 782.898,488.173 788.995,478.145 814.669,479.959 818.817,438.722 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="666.589,476.434 664.255,503.557 
-	681.632,505.633 694.857,499.916 692.262,483.07 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="599.735,501.612 636.247,531.953 
-	680.981,531.953 680.981,554.904 599.735,554.904 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="759.315,529.301 775.721,500.886 
-	792.128,529.301 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="741.307,428.338 734.229,419.461 
-	736.757,408.396 746.983,403.469 757.206,408.396 759.735,419.461 752.654,428.338 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="647.399,599.509 651.749,602.988 
-	629.84,606.702 629.84,588.419 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="650.068,569.167 650.068,579.861 
-	662.723,580.171 663.294,570.334 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="758.061,626.35 800.104,626.854 
-	807.438,600.447 796.468,579.694 785.065,582.478 768.195,563.04 736.104,589.264 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="694.308,592.604 687.232,583.727 
-	689.758,572.661 699.984,567.735 710.211,572.661 712.736,583.727 705.658,592.604 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="854.273,544.551 858.625,548.03 
-	836.717,551.75 836.717,533.467 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="856.944,514.209 856.944,524.909 
-	869.597,525.213 870.171,515.376 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="883.785,550.194 875.24,551.771 
-	869.597,545.158 872.505,536.968 881.048,535.388 886.688,542.001 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="779.841,537.333 779.841,548.03 
-	793.067,547.775 793.067,538.5 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="901.184,537.646 894.106,528.769 
-	896.635,517.703 906.861,512.777 917.084,517.703 919.613,528.769 912.532,537.646 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="836.717,410.401 827.633,456.421 
-	894.106,463.102 910.101,434.273 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="676.909,605.146 668.363,606.727 
-	662.723,600.113 665.628,591.92 674.174,590.346 679.814,596.959 "/>
-<rect x="21.066" y="439.913" width="30.913" height="18.155" fill="none" stroke="#010101"/>
-<rect x="106.758" y="452.881" width="29.563" height="5.188" fill="none" stroke="#010101"/>
-<rect x="184.038" y="464.809" width="25.963" height="17.637" fill="none" stroke="#010101"/>
-<rect x="305.408" y="427.01" width="17.01" height="40.393" fill="none" stroke="#010101"/>
-<rect x="262.876" y="458.068" width="17.004" height="17.633" fill="none" stroke="#010101"/>
-<rect x="338.931" y="427.01" width="47.904" height="25.868" fill="none" stroke="#010101"/>
-<polygon fill="none" stroke="#010101" points="66.82,475.701 47.112,507.86 101.95,510.972 140.64,493.336 90.161,496.448 87.322,473.625 "/>
-<polygon fill="none" stroke="#010101" points="196.401,495.929 224.016,523.938 348.972,517.196 271.061,492.297 227.967,473.625 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1065.045,441.528 1069.396,445.009 
-	1047.488,448.729 1047.488,430.445 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1078.067,402.694 1078.067,413.395 
-	1090.719,413.699 1091.293,403.861 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1104.908,438.68 1096.362,440.257 
-	1090.719,433.644 1093.627,425.454 1102.17,423.873 1107.811,430.486 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="998.292,456.163 999.742,462.843 
-	980.735,463.359 980.735,445.074 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1000.963,425.818 1000.963,436.516 
-	1014.189,436.261 1014.189,426.985 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1027.805,461.804 1019.259,463.381 
-	1013.618,456.768 1016.523,448.578 1025.069,447.001 1030.706,453.613 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="601.531,174.639 571.451,204.011 
-	584.936,227.87 607.366,234.787 613.463,224.759 639.137,226.573 643.285,185.336 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1047.589,474.228 1045.255,501.351 
-	1062.632,503.427 1075.857,497.71 1073.262,480.864 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="980.735,499.406 1017.247,529.747 
-	1061.98,529.747 1061.98,552.698 980.735,552.698 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="583.783,275.915 600.188,247.5 
-	616.596,275.915 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="565.774,174.952 558.696,166.075 
-	561.225,155.01 571.451,150.083 581.674,155.01 584.203,166.075 577.122,174.952 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1028.399,597.303 1032.749,600.782 
-	1010.84,604.496 1010.84,586.213 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1031.068,566.961 1031.068,577.655 
-	1043.723,577.965 1044.294,568.128 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="582.528,372.964 624.57,373.468 
-	631.906,347.062 620.936,326.309 609.533,329.092 592.663,309.654 560.571,335.878 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1075.308,590.397 1068.232,581.521 
-	1070.758,570.455 1080.984,565.529 1091.211,570.455 1093.736,581.521 1086.658,590.397 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="678.741,291.165 683.093,294.645 
-	661.185,298.364 661.185,280.081 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="681.412,260.823 681.412,271.524 
-	694.064,271.827 694.639,261.99 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="708.253,296.809 699.708,298.386 
-	694.064,291.773 696.973,283.582 705.516,282.002 711.155,288.615 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="604.309,283.947 604.309,294.645 
-	617.535,294.389 617.535,285.114 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="725.651,284.26 718.574,275.383 
-	721.104,264.317 731.329,259.392 741.552,264.317 744.081,275.383 737,284.26 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="661.185,157.016 652.101,203.035 
-	718.574,209.716 734.568,180.887 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1057.909,602.939 1049.363,604.521 
-	1043.723,597.907 1046.628,589.714 1055.174,588.14 1060.814,594.753 "/>
-<rect x="402.066" y="437.707" width="30.912" height="18.155" fill="none" stroke="#010101" />
-<rect x="487.758" y="450.675" width="29.564" height="5.188" fill="none" stroke="#010101" />
-<rect x="565.949" y="691.507" width="25.963" height="17.636" fill="none" stroke="#010101" />
-<rect x="687.32" y="653.708" width="17.01" height="40.392" fill="none" stroke="#010101" />
-<rect x="644.789" y="684.767" width="17.004" height="17.634" fill="none" stroke="#010101" />
-<rect x="720.844" y="653.708" width="47.904" height="25.868" fill="none" stroke="#010101" />
-<polygon fill="none" stroke="#010101" points="447.82,473.495 428.112,505.654 482.95,508.766 521.641,491.13 471.161,494.242 468.322,471.419 "/>
-<polygon fill="none" stroke="#010101" points="578.312,722.627 605.928,750.635 730.885,743.895 652.973,718.995 609.879,700.323 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="903.513,195.164 907.864,198.645 
-	885.956,202.364 885.956,184.081 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="916.535,156.33 916.535,167.03 
-	929.188,167.335 929.761,157.497 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="943.376,192.316 934.83,193.893 
-	929.188,187.279 932.095,179.09 940.638,177.509 946.277,184.122 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="836.76,209.799 838.209,216.479 
-	819.203,216.995 819.203,198.71 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="839.432,179.454 839.432,190.151 
-	852.657,189.897 852.657,180.621 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="866.271,215.44 857.727,217.017 
-	852.086,210.403 854.991,202.214 863.537,200.637 869.174,207.249 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="996.531,179.454 966.451,208.826 
-	979.936,232.686 1002.366,239.603 1008.463,229.574 1034.137,231.389 1038.285,190.151 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="886.057,227.863 883.723,254.986 
-	901.1,257.063 914.325,251.346 911.729,234.5 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="819.203,253.042 855.715,283.383 
-	900.449,283.383 900.449,306.334 819.203,306.334 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="978.783,280.731 995.188,252.316 
-	1011.596,280.731 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="960.774,179.768 953.696,170.891 
-	956.225,159.825 966.451,154.899 976.674,159.825 979.203,170.891 972.122,179.768 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="866.867,350.939 871.217,354.418 
-	849.308,358.132 849.308,339.849 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="869.536,320.597 869.536,331.291 
-	882.19,331.601 882.762,321.764 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="977.528,377.779 1019.57,378.283 
-	1026.906,351.877 1015.936,331.124 1004.533,333.907 987.663,314.47 955.571,340.693 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="913.775,344.033 906.7,335.156 
-	909.226,324.091 919.452,319.165 929.679,324.091 932.204,335.156 925.126,344.033 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1073.741,295.981 1078.093,299.46 
-	1056.186,303.18 1056.186,284.897 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1076.412,265.639 1076.412,276.339 
-	1089.064,276.643 1089.639,266.806 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1103.253,301.624 1094.708,303.201 
-	1089.064,296.588 1091.973,288.398 1100.516,286.817 1106.155,293.431 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="999.309,288.763 999.309,299.46 
-	1012.535,299.204 1012.535,289.93 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1120.651,289.075 1113.574,280.198 
-	1116.104,269.133 1126.329,264.207 1136.552,269.133 1139.081,280.198 1132,289.075 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1056.186,161.831 1047.101,207.851 
-	1113.574,214.531 1129.568,185.702 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="896.377,356.575 887.831,358.156 
-	882.19,351.543 885.096,343.35 893.642,341.776 899.282,348.389 "/>
-<rect x="797.979" y="671.427" width="30.912" height="18.155" fill="none" stroke="#010101" />
-<rect x="883.67" y="684.395" width="29.564" height="5.188" fill="none" stroke="#010101" />
-<rect x="916.535" y="655.978" width="25.963" height="17.637" fill="none" stroke="#010101" />
-<rect x="1037.906" y="618.179" width="17.01" height="40.393" fill="none" stroke="#010101" />
-<rect x="995.375" y="649.237" width="17.004" height="17.633" fill="none" stroke="#010101" />
-<rect x="1071.43" y="618.179" width="47.904" height="25.868" fill="none" stroke="#010101" />
-<polygon fill="none" stroke="#010101"  points="843.732,707.215 824.023,739.374 878.861,742.484 917.553,724.85 867.072,727.962 864.234,705.139 "/>
-<polygon fill="none" stroke="#010101"  points="928.898,687.098 956.514,715.105 1081.471,708.365 1003.559,683.466 960.465,664.794 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="105.375,574.337 109.727,577.817 
-	87.819,581.537 87.819,563.254 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="118.398,535.503 118.398,546.203 
-	131.049,546.508 131.624,536.67 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="145.239,571.488 136.693,573.065 
-	131.049,566.452 133.958,558.263 142.5,556.682 148.14,563.295 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="38.623,588.972 40.072,595.651 
-	21.066,596.168 21.066,577.883 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="41.294,558.627 41.294,569.324 
-	54.52,569.069 54.52,559.794 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="68.135,594.612 59.589,596.189 
-	53.949,589.576 56.854,581.387 65.4,579.81 71.037,586.422 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="198.394,558.627 168.314,587.999 
-	181.798,611.858 204.229,618.775 210.326,608.747 236,610.562 240.148,569.324 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="87.919,607.036 85.585,634.159 
-	102.962,636.235 116.188,630.519 113.592,613.673 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="21.066,632.215 57.578,662.556 
-	102.312,662.556 102.312,685.507 21.066,685.507 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="180.646,659.903 197.051,631.488 
-	213.458,659.903 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="162.637,558.94 155.559,550.062 
-	158.087,538.998 168.314,534.071 178.537,538.998 181.066,550.062 173.985,558.94 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="68.73,730.111 73.08,733.591 
-	51.17,737.305 51.17,719.021 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="71.399,699.77 71.399,710.464 
-	84.053,710.773 84.625,700.938 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="115.638,723.206 108.563,714.329 
-	111.088,703.264 121.315,698.338 131.542,703.264 134.067,714.329 126.989,723.206 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="275.604,675.153 279.956,678.633 
-	258.047,682.354 258.047,664.069 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="278.275,644.812 278.275,655.512 
-	290.927,655.815 291.501,645.979 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="305.116,680.797 296.571,682.374 
-	290.927,675.761 293.835,667.57 302.378,665.99 308.018,672.604 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="201.171,667.936 201.171,678.633 
-	214.398,678.377 214.398,669.104 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="322.514,668.248 315.438,659.371 
-	317.965,648.306 328.192,643.38 338.415,648.306 340.944,659.371 333.863,668.248 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="258.047,541.004 248.963,587.023 
-	315.438,593.704 331.431,564.875 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="98.24,735.748 89.694,737.329 
-	84.053,730.716 86.958,722.521 95.504,720.948 101.145,727.562 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="504.59,600.795 508.941,604.275 
-	487.033,607.995 487.033,589.712 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="517.611,561.961 517.611,572.661 
-	530.264,572.966 530.838,563.128 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="545.365,716.138 536.818,717.715 
-	531.176,711.102 534.084,702.912 542.627,701.331 548.266,707.944 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="437.837,615.43 439.287,622.109 
-	420.28,622.626 420.28,604.341 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="440.508,585.085 440.508,595.782 
-	453.734,595.527 453.734,586.252 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="467.35,621.07 458.804,622.646 
-	453.163,616.034 456.068,607.845 464.614,606.268 470.251,612.88 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="598.52,813.989 568.439,843.361 
-	581.924,867.221 604.355,874.138 610.451,864.109 636.125,865.924 640.273,824.687 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="487.134,633.494 484.8,660.617 
-	502.177,662.693 515.402,656.977 512.807,640.131 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="420.28,658.673 456.792,689.014 
-	501.526,689.014 501.526,711.965 420.28,711.965 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="580.771,915.266 597.178,886.851 
-	613.584,915.266 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="562.764,814.303 555.686,805.426 
-	558.213,794.359 568.439,789.434 578.662,794.359 581.191,805.426 574.111,814.303 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="467.944,756.569 472.294,760.049 
-	450.385,763.763 450.385,745.479 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="470.613,726.229 470.613,736.922 
-	483.268,737.231 483.839,727.395 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="514.852,749.664 507.777,740.787 
-	510.303,729.722 520.529,724.796 530.756,729.722 533.281,740.787 526.203,749.664 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="675.73,930.516 680.082,933.995 
-	658.174,937.715 658.174,919.432 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="678.4,900.174 678.4,910.874 
-	691.053,911.178 691.627,901.341 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="705.242,936.159 696.697,937.736 
-	691.053,931.123 693.961,922.933 702.504,921.353 708.145,927.966 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="601.297,923.298 601.297,933.995 
-	614.523,933.739 614.523,924.465 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="563.383,919.432 559.621,926.865 
-	550.156,929.546 550.156,937.715 559.621,940.869 563.383,946.966 571.941,946.966 575.18,942.553 581.07,937.736 581.07,929.546 
-	575.18,926.087 570.123,919.432 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="722.641,923.609 715.562,914.734 
-	718.092,903.668 728.318,898.742 738.541,903.668 741.07,914.734 733.988,923.609 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="658.174,796.366 649.09,842.386 
-	715.562,849.066 731.557,820.237 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="497.454,762.206 488.908,763.787 
-	483.268,757.174 486.173,748.98 494.719,747.406 500.359,754.02 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="900.502,834.515 904.854,837.995 
-	882.945,841.715 882.945,823.432 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="913.523,795.681 913.523,806.381 
-	926.176,806.686 926.75,796.848 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="940.365,831.666 931.818,833.243 
-	926.176,826.63 929.084,818.441 937.627,816.859 943.266,823.473 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="833.748,849.15 835.197,855.829 
-	816.191,856.346 816.191,838.061 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="836.42,818.805 836.42,829.502 
-	849.646,829.247 849.646,819.972 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="863.262,854.79 854.715,856.367 
-	849.074,849.754 851.98,841.564 860.525,839.987 866.162,846.6 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="993.52,818.805 963.439,848.177 
-	976.924,872.036 999.355,878.953 1005.451,868.925 1031.125,870.739 1035.273,829.502 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="957.764,819.118 950.686,810.241 
-	953.213,799.176 963.439,794.249 973.662,799.176 976.191,810.241 969.111,819.118 "/>
-<polygon fill="none" stroke="#010101" stroke-miterlimit="10" points="1053.174,801.182 1044.09,847.201 
-	1110.562,853.882 1126.557,825.053 "/>
-<rect width="511.822" height="339.235" fill="none" stroke="#010101" />
+    <meta name="description" content="A completely free and open source application for automatic nesting. Comes with advanced features like part-in-part nesting and concave area detection." />
 
-	<path fill="none" stroke="#010101"  d="M746.843,60.679c-2.465,1.232-7.395,2.465-13.711,2.465c-14.635,0-25.65-9.243-25.65-26.266
-		c0-16.252,11.016-27.268,27.113-27.268c6.471,0,10.553,1.387,12.324,2.311l-1.617,5.469c-2.542-1.232-6.162-2.157-10.476-2.157
-		c-12.17,0-20.258,7.78-20.258,21.414c0,12.709,7.317,20.874,19.95,20.874c4.082,0,8.241-0.848,10.938-2.157L746.843,60.679z"/>
-	<path fill="none" stroke="#010101"  d="M755.008,7.685h6.778v54.688h-6.778V7.685z"/>
-	<path fill="none" stroke="#010101"  d="M780.734,14.617c0.077,2.311-1.617,4.16-4.313,4.16c-2.388,0-4.082-1.849-4.082-4.16c0-2.388,1.771-4.236,4.236-4.236
-		C779.117,10.38,780.734,12.229,780.734,14.617z M773.187,62.373V25.092h6.777v37.281H773.187z"/>
-	<path fill="none" stroke="#010101"  d="M817.784,60.986c-1.771,0.925-5.7,2.157-10.707,2.157c-11.246,0-18.563-7.626-18.563-19.026
-		c0-11.477,7.856-19.795,20.027-19.795c4.005,0,7.548,1.001,9.397,1.925l-1.541,5.238c-1.617-0.924-4.159-1.771-7.856-1.771
-		c-8.55,0-13.172,6.316-13.172,14.096c0,8.627,5.546,13.942,12.94,13.942c3.852,0,6.394-1.001,8.318-1.849L817.784,60.986z"/>
-	<path fill="none" stroke="#010101"  d="M832.42,42.192h0.154c0.924-1.31,2.233-2.927,3.312-4.237l10.938-12.863h8.164L840.585,40.42l16.406,21.953h-8.241
-		l-12.864-17.87l-3.466,3.852v14.019h-6.701V7.685h6.701V42.192z"/>
-	<path fill="none" stroke="#010101"  d="M885.107,16.157h-15.79v-5.7h38.437v5.7h-15.867v46.216h-6.779V16.157z"/>
-	<path fill="none" stroke="#010101"  d="M912.762,7.685h6.778v23.262h0.154c1.078-1.926,2.772-3.62,4.853-4.775c2.002-1.156,4.391-1.926,6.932-1.926
-		c5.007,0,13.018,3.081,13.018,15.944v22.184h-6.778V40.96c0-6.008-2.233-11.092-8.627-11.092c-4.39,0-7.856,3.081-9.089,6.778
-		c-0.385,0.924-0.462,1.925-0.462,3.235v22.492h-6.778V7.685z"/>
-	<path fill="none" stroke="#010101"  d="M963.062,14.617c0.077,2.311-1.618,4.16-4.313,4.16c-2.389,0-4.083-1.849-4.083-4.16c0-2.388,1.771-4.236,4.236-4.236
-		C961.443,10.38,963.062,12.229,963.062,14.617z M955.513,62.373V25.092h6.778v37.281H955.513z"/>
-	<path fill="none" stroke="#010101"  d="M972.611,55.44c2.003,1.31,5.546,2.696,8.936,2.696c4.93,0,7.24-2.465,7.24-5.546c0-3.235-1.926-5.007-6.933-6.855
-		c-6.701-2.388-9.859-6.085-9.859-10.553c0-6.008,4.853-10.938,12.864-10.938c3.773,0,7.086,1.078,9.166,2.311l-1.695,4.93
-		c-1.463-0.924-4.159-2.157-7.625-2.157c-4.006,0-6.239,2.311-6.239,5.084c0,3.081,2.233,4.467,7.086,6.316
-		c6.471,2.465,9.782,5.7,9.782,11.246c0,6.547-5.083,11.169-13.941,11.169c-4.082,0-7.856-1.001-10.476-2.542L972.611,55.44z"/>
-<polygon fill="none" stroke="#010101"  points="676.149,23 616.756,23 616.756,1 558.443,34.667 616.756,68.333 616.756,46.333 676.149,46.333 "/>
-</svg>
+    <link type="text/css" rel="stylesheet" media="all" href="font/latolatinfonts.css" />
+    <link rel="stylesheet" type="text/css" href="style.css" />
 
-			</div>
-			<div id="bins"></div>
-			
-			<input id="fileinput" type="file" style="visibility:hidden" />
-		</div>
-		
-		<div id="messagewrapper">
-			<div id="message"></div>
-		</div>
-	</body>
+    <script src="util/pathsegpolyfill.js"></script>
+    <script src="util/matrix.js"></script>
+    <script src="util/domparser.js"></script>
+    <script src="util/clipper.js"></script>
+    <script src="util/parallel.js"></script>
+    <script src="util/geometryutil.js"></script>
+    <script src="util/placementworker.js"></script>
+    <script src="svgparser.js"></script>
+    <script src="svgnest.js"></script>
+
+    <script src="util/filesaver.js"></script>
+
+    <script>
+        // UI-specific stuff, button clicks go here
+        function ready(fn) {
+            if (document.readyState != "loading") {
+                fn();
+            } else {
+                document.addEventListener("DOMContentLoaded", fn);
+            }
+        }
+
+        ready(function() {
+            // FAQ toggle
+            var faq = document.getElementById("faq");
+            var faqbutton = document.getElementById("faqbutton");
+
+            var faqvisible = false;
+            faqbutton.onclick = function(e) {
+                if (!faqvisible) {
+                    faq.setAttribute("style", "display: block");
+                } else {
+                    faq.removeAttribute("style");
+                }
+                faqvisible = !faqvisible;
+            };
+
+            function hideSplash() {
+                var splash = document.getElementById("splash");
+                var svgnest = document.getElementById("svgnest");
+                if (splash) {
+                    splash.remove();
+                }
+                svgnest.setAttribute("style", "display: block");
+            }
+
+            var demo = document.getElementById("demo");
+            var upload = document.getElementById("upload");
+            var display = document.getElementById("select");
+
+            demo.onclick = function() {
+                try {
+                    var svg = window.SvgNest.parsesvg(display.innerHTML);
+                    display.innerHTML = "";
+                    display.appendChild(svg);
+                } catch (e) {
+                    message.innerHTML = e;
+                    message.className = "error animated bounce";
+                    return;
+                }
+
+                hideSplash();
+                message.innerHTML = "Click on the outline to use as the bin";
+                message.className = "active animated bounce";
+
+                attachSvgListeners(svg);
+            };
+
+            var message = document.getElementById("message");
+
+            if (!document.createElementNS ||
+                !document.createElementNS("http://www.w3.org/2000/svg", "svg")
+                .createSVGRect
+            ) {
+                message.innerHTML = "Your browser does not have SVG support";
+                message.className = "error animated bounce";
+                return;
+            }
+
+            if (!window.SvgNest) {
+                message.innerHTML = "Couldn't initialize SVGnest";
+                message.className = "error animated bounce";
+                return;
+            }
+
+            if (!window.File || !window.FileReader) {
+                message.innerHTML = "Your browser does not have file upload support";
+                message.className = "error animated bounce";
+                return;
+            }
+
+            if (!window.Worker) {
+                message.innerHTML = "Your browser does not have web worker support";
+                message.className = "error animated bounce";
+                return;
+            }
+
+            // button clicks
+            var upload = document.getElementById("upload");
+            var start = document.getElementById("start");
+            var download = document.getElementById("download");
+            var startlabel = document.getElementById("startlabel");
+            var fileinput = document.getElementById("fileinput");
+
+            var config = document.getElementById("config");
+            var configbutton = document.getElementById("configbutton");
+            var configsave = document.getElementById("configsave");
+
+            var zoomin = document.getElementById("zoominbutton");
+            var zoomout = document.getElementById("zoomoutbutton");
+            var exit = document.getElementById("exitbutton");
+
+            var isworking = false;
+
+            start.onclick = function() {
+                if (this.className == "button start disabled") {
+                    return false;
+                }
+                iterations = 0;
+                if (isworking) {
+                    stopnest();
+                } else {
+                    startnest();
+                }
+
+                display.className = "disabled";
+                document
+                    .getElementById("info_time")
+                    .setAttribute("style", "display: none");
+            };
+
+            function startnest() {
+                // Once started, don't allow this anymore
+                document.removeEventListener("dragover", FileDragHover, false);
+                document.removeEventListener("dragleave", FileDragHover, false);
+                document.removeEventListener("drop", FileDrop, false);
+
+                SvgNest.start(progress, renderSvg);
+                startlabel.innerHTML = "Stop Nest";
+                start.className = "button spinner";
+                configbutton.className = "button config disabled";
+                config.className = "";
+                zoomin.className = "button zoomin disabled";
+                zoomout.className = "button zoomout disabled";
+
+                var svg = document.querySelector("#select svg");
+                if (svg) {
+                    svg.removeAttribute("style");
+                }
+
+                isworking = true;
+            }
+
+            function stopnest() {
+                SvgNest.stop();
+                startlabel.innerHTML = "Start Nest";
+                start.className = "button start";
+                configbutton.className = "button config";
+
+                isworking = false;
+            }
+
+            // config
+            var configvisible = false;
+            configbutton.onclick = function() {
+                if (this.className == "button config disabled") {
+                    return false;
+                }
+                if (!configvisible) {
+                    config.className = "active";
+                    configbutton.className = "button close";
+                } else {
+                    config.className = "";
+                    configbutton.className = "button config";
+                }
+                configvisible = !configvisible;
+
+                return false;
+            };
+
+            configsave.onclick = function() {
+                var c = {};
+                var inputs = document.querySelectorAll("#config input");
+                for (var i = 0; i < inputs.length; i++) {
+                    var key = inputs[i].getAttribute("data-config");
+                    if (inputs[i].getAttribute("type") == "text") {
+                        c[key] = inputs[i].value;
+                    } else if (inputs[i].getAttribute("type") == "checkbox") {
+                        c[key] = inputs[i].checked;
+                    }
+                }
+
+                window.SvgNest.config(c);
+
+                // new configs will invalidate current nest
+                if (isworking) {
+                    stopnest();
+                }
+                configvisible = false;
+                config.className = "";
+                return false;
+            };
+
+            upload.onclick = function() {
+                fileinput.click();
+            };
+            document.addEventListener("dragover", FileDragHover, false);
+            document.addEventListener("dragleave", FileDragHover, false);
+            document.addEventListener("drop", FileDrop, false);
+
+            function FileDragHover(e) {
+                e.stopPropagation();
+                e.preventDefault();
+                upload.style.backgroundColor = e.type == "dragover" ? "#d7e9b7" : "";
+            }
+
+            function FileDrop(e) {
+                e.stopPropagation(); // Make sure not to replace website by file
+                e.preventDefault();
+                handleFile(e.dataTransfer.files[0]);
+            }
+
+            download.onclick = function() {
+                if (download.className == "button download disabled") {
+                    return false;
+                }
+
+                var bins = document.getElementById("bins");
+
+                if (bins.children.length == 0) {
+                    message.innerHTML = "No SVG to export";
+                    message.className = "error animated bounce";
+                    return;
+                }
+
+                var svg;
+                svg = display.querySelector("svg");
+
+                if (!svg) {
+                    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                }
+
+                svg = svg.cloneNode(false);
+
+                // maintain stroke, fill etc of input
+                if (SvgNest.style) {
+                    svg.appendChild(SvgNest.style);
+                }
+
+                var binHeight = parseInt(bins.children[0].getAttribute("height"));
+
+                for (var i = 0; i < bins.children.length; i++) {
+                    var b = bins.children[i];
+                    var group = document.createElementNS(
+                        "http://www.w3.org/2000/svg",
+                        "g"
+                    );
+                    group.setAttribute(
+                        "transform",
+                        "translate(0 " + binHeight * 1.1 * i + ")"
+                    );
+                    for (var j = 0; j < b.children.length; j++) {
+                        group.appendChild(b.children[j].cloneNode(true));
+                    }
+
+                    svg.appendChild(group);
+                }
+
+                var output;
+                if (typeof XMLSerializer != "undefined") {
+                    output = new XMLSerializer().serializeToString(svg);
+                } else {
+                    output = svg.outerHTML;
+                }
+
+                var blob = new Blob([output], {
+                    type: "image/svg+xml;charset=utf-8",
+                });
+                saveAs(blob, "SVGnest-output.svg");
+            };
+
+            var zoomlevel = 1.0;
+
+            zoomin.onclick = function() {
+                if (this.className == "button zoomin disabled") {
+                    return false;
+                }
+                zoomlevel *= 1.2;
+                var svg = document.querySelector("#select svg");
+                if (svg) {
+                    svg.setAttribute(
+                        "style",
+                        "transform-origin: top left; transform:scale(" +
+                        zoomlevel +
+                        "); -webkit-transform:scale(" +
+                        zoomlevel +
+                        "); -moz-transform:scale(" +
+                        zoomlevel +
+                        "); -ms-transform:scale(" +
+                        zoomlevel +
+                        "); -o-transform:scale(" +
+                        zoomlevel +
+                        ");"
+                    );
+                }
+            };
+
+            zoomout.onclick = function() {
+                if (this.className == "button zoomout disabled") {
+                    return false;
+                }
+                zoomlevel *= 0.8;
+                if (zoomlevel < 0.02) {
+                    zoomlevel = 0.02;
+                }
+                var svg = document.querySelector("#select svg");
+                if (svg) {
+                    svg.setAttribute(
+                        "style",
+                        "transform-origin: top left; transform:scale(" +
+                        zoomlevel +
+                        "); -webkit-transform:scale(" +
+                        zoomlevel +
+                        "); -moz-transform:scale(" +
+                        zoomlevel +
+                        "); -ms-transform:scale(" +
+                        zoomlevel +
+                        "); -o-transform:scale(" +
+                        zoomlevel +
+                        ");"
+                    );
+                }
+            };
+
+            exit.onclick = function() {
+                location.reload();
+            };
+
+            fileinput.onchange = function(e) {
+                handleFile(e.target.files[0]);
+            };
+
+            function handleFile(file) {
+                if (!file) {
+                    return;
+                }
+
+                if (!file.type ||
+                    (file.type.search("svg") < 0 &&
+                        file.type.search("xml") < 0 &&
+                        file.type.search("text") < 0)
+                ) {
+                    message.innerHTML = "Only SVG files allowed";
+                    message.className = "error animated bounce";
+                    return;
+                }
+
+                var reader = new FileReader();
+                var input = this;
+                reader.onload = function(e) {
+                    input.value = null;
+
+                    if (reader.result) {
+                        try {
+                            var svg = window.SvgNest.parsesvg(reader.result); {
+                                var wholeSVG = document.createElementNS(
+                                    "http://www.w3.org/2000/svg",
+                                    "svg"
+                                );
+                                // Copy relevant scaling info
+                                wholeSVG.setAttribute("width", svg.getAttribute("width"));
+                                wholeSVG.setAttribute("height", svg.getAttribute("height"));
+                                wholeSVG.setAttribute("viewBox", svg.getAttribute("viewBox"));
+                                var rect = document.createElementNS(
+                                    wholeSVG.namespaceURI,
+                                    "rect"
+                                );
+                                rect.setAttribute("x", wholeSVG.viewBox.baseVal.x);
+                                rect.setAttribute("y", wholeSVG.viewBox.baseVal.x);
+                                rect.setAttribute("width", wholeSVG.viewBox.baseVal.width);
+                                rect.setAttribute("height", wholeSVG.viewBox.baseVal.height);
+                                rect.setAttribute("class", "fullRect");
+                                wholeSVG.appendChild(rect);
+                            }
+                            display.innerHTML = "";
+                            display.appendChild(wholeSVG); // As a default bin in background
+                            display.appendChild(svg);
+                        } catch (e) {
+                            message.innerHTML = e;
+                            message.className = "error animated bounce";
+                            return;
+                        }
+
+                        hideSplash();
+                        message.innerHTML = "Click on the outline to use as the bin";
+                        message.className = "active animated bounce";
+                        start.className = "button start disabled";
+
+                        attachSvgListeners(svg);
+                        attachSvgListeners(wholeSVG);
+                    }
+                };
+
+                reader.readAsText(file);
+            }
+
+            function attachSvgListeners(svg) {
+                // attach event listeners
+                for (var i = 0; i < svg.childNodes.length; i++) {
+                    var node = svg.childNodes[i];
+                    if (node.nodeType == 1) {
+                        node.onclick = function() {
+                            if (display.className == "disabled") {
+                                return;
+                            }
+                            var currentbin = document.querySelector("#select .active");
+                            if (currentbin) {
+                                var className = currentbin
+                                    .getAttribute("class")
+                                    .replace("active", "")
+                                    .trim();
+                                if (!className) currentbin.removeAttribute("class");
+                                else currentbin.setAttribute("class", className);
+                            }
+
+                            window.SvgNest.setbin(this);
+                            this.setAttribute(
+                                "class",
+                                (this.getAttribute("class") ?
+                                    this.getAttribute("class") + " " :
+                                    "") + "active"
+                            );
+
+                            start.className = "button start animated bounce";
+                            message.className = "";
+                        };
+                    }
+                }
+            }
+
+            var prevpercent = 0;
+            var startTime = null;
+
+            function progress(percent) {
+                var transition =
+                    percent > prevpercent ? "; transition: width 0.1s" : "";
+                document
+                    .getElementById("info_progress")
+                    .setAttribute(
+                        "style",
+                        "width: " + Math.round(percent * 100) + "% " + transition
+                    );
+                document
+                    .getElementById("info")
+                    .setAttribute("style", "display: block");
+
+                prevpercent = percent;
+
+                var now = new Date().getTime();
+                if (startTime && now) {
+                    var diff = now - startTime;
+                    // show a time estimate for long-running placements
+                    var estimate = (diff / percent) * (1 - percent);
+                    document.getElementById("info_time").innerHTML =
+                        millisecondsToStr(estimate) + " remaining";
+
+                    if (
+                        diff > 5000 &&
+                        percent < 0.3 &&
+                        percent > 0.02 &&
+                        estimate > 10000
+                    ) {
+                        document
+                            .getElementById("info_time")
+                            .setAttribute("style", "display: block");
+                    }
+                }
+
+                if (percent > 0.95 || percent < 0.02) {
+                    document
+                        .getElementById("info_time")
+                        .setAttribute("style", "display: none");
+                }
+                if (percent < 0.02) {
+                    startTime = new Date().getTime();
+                }
+            }
+
+            var iterations = 0;
+
+            function renderSvg(svglist, efficiency, placed, total) {
+                iterations++;
+                document.getElementById("info_iterations").innerHTML = iterations;
+
+                if (!svglist || svglist.length == 0) {
+                    return;
+                }
+                var bins = document.getElementById("bins");
+                bins.innerHTML = "";
+
+                for (var i = 0; i < svglist.length; i++) {
+                    if (svglist.length > 2) {
+                        svglist[i].setAttribute("class", "grid");
+                    }
+                    bins.appendChild(svglist[i]);
+                }
+
+                if (efficiency || efficiency === 0) {
+                    document.getElementById("info_efficiency").innerHTML = Math.round(
+                        efficiency * 100
+                    );
+                }
+
+                document.getElementById("info_placed").innerHTML =
+                    placed + "/" + total;
+
+                document
+                    .getElementById("info_placement")
+                    .setAttribute("style", "display: block");
+                display.setAttribute("style", "display: none");
+                download.className = "button download animated bounce";
+            }
+
+            message.onclick = function(e) {
+                this.className = "";
+            };
+
+            function millisecondsToStr(milliseconds) {
+                function numberEnding(number) {
+                    return number > 1 ? "s" : "";
+                }
+
+                var temp = Math.floor(milliseconds / 1000);
+                var years = Math.floor(temp / 31536000);
+                if (years) {
+                    return years + " year" + numberEnding(years);
+                }
+                var days = Math.floor((temp %= 31536000) / 86400);
+                if (days) {
+                    return days + " day" + numberEnding(days);
+                }
+                var hours = Math.floor((temp %= 86400) / 3600);
+                if (hours) {
+                    return hours + " hour" + numberEnding(hours);
+                }
+                var minutes = Math.floor((temp %= 3600) / 60);
+                if (minutes) {
+                    return minutes + " minute" + numberEnding(minutes);
+                }
+                var seconds = temp % 60;
+                if (seconds) {
+                    return seconds + " second" + numberEnding(seconds);
+                }
+                return "less than a second";
+            }
+        });
+    </script>
+</head>
+
+<body>
+    <div id="splash">
+        <!-- a small splash page that explains what this thing is -->
+        <img src="img/logo.svg" alt="SVGnest" class="logo" />
+        <h1 class="title">SVGnest</h1>
+        <em class="subscript">Open Source nesting</em>
+
+        <ul class="nav">
+            <li class="button start" id="demo">Demo</li>
+            <li class="button upload" id="upload">Upload SVG</li>
+            <li class="button code" onclick="window.open('https://github.com/Jack000/SVGnest')">
+                <a href="https://github.com/Jack000/SVGnest" target="_blank">Github</a
+          >
+        </li>
+        <li class="button" id="faqbutton">FAQ</li>
+      </ul>
+
+      <div id="faq">
+        <h1>What exactly is "nesting"?</h1>
+        <p>
+          If you have some parts to cut out of a piece of metal/plastic/wood
+          etc, you'd want to arrange the parts to use as little material as
+          possible. This is a common problem if you use a laser cutter, plasma
+          cutter, or CNC machine.
+        </p>
+        <p>
+          In computer terms this is called the irregular bin-packing problem
+        </p>
+
+        <h1>How much does it cost?</h1>
+        <p>
+          It's free and open source. The code and implementation details are on
+          <a href="https://github.com/Jack000/SVGnest" target="_blank"
+            >Github</a
+          >
+        </p>
+
+        <h1>Does it use inches? mm?</h1>
+        <p>
+          SVG has its internal units, the distance related fields in the
+          settings use SVG units, ie. pixels. The conversion between a pixel and
+          real units depend on the exporting software, but it's typically 72
+          pixels = 1 inch
+        </p>
+
+        <h1>My SVG text/image doesn't show up?</h1>
+        <p>
+          Nesting only works for closed shapes, so SVG elements that don't
+          represent closed shapes are removed. Convert text and any other
+          elements to outlines first. Ensure that outlines do not intersect or
+          overlap eachother. Outlines that are inside other outlines are
+          considered holes.
+        </p>
+
+        <h1>It doesn't ever stop?</h1>
+        <p>
+          The software will continuously look for better solutions until you
+          press the stop button. You can stop at any time and download the SVG
+          file.
+        </p>
+
+        <h1>Some parts seem to slightly overlap?</h1>
+        <p>
+          Curved shapes are approximated with line segments. For a more accurate
+          nest with curved parts, decrease the curve tolerance parameter in the
+          configuration.
+        </p>
+
+        <h1>I need help?</h1>
+        <p>
+          Add an issue on Github or contact me personally:
+          <a href="http://jack.works">jack.works</a>
+                </p>
+    </div>
+    </div>
+
+    <div id="svgnest">
+        <div id="controls">
+            <ul class="nav">
+                <li class="button start disabled" id="start">
+                    <span id="startlabel">Start Nest</span>
+                </li>
+                <li class="button download disabled" id="download">Download SVG</li>
+                <li class="button config" id="configbutton"></li>
+                <li class="button zoomin" id="zoominbutton"></li>
+                <li class="button zoomout" id="zoomoutbutton"></li>
+                <li class="button exit" id="exitbutton"></li>
+            </ul>
+
+            <div id="config">
+                <div id="configwrapper">
+                    <input type="text" value="0" data-config="spacing" />
+                    <h3>Space between parts</h3>
+                    <span class="tooltip" title="The space between parts in SVG units (conversion depends on exporting software but usually 1 SVG unit = 1px = 1/72 inches = 0.3527777~ mm)">?</span
+            >
+
+            <input type="text" value="0.3" data-config="curveTolerance" />
+            <h3>Curve tolerance</h3>
+            <span
+              class="tooltip"
+              title="The maximum error allowed when converting Beziers and arcs to line segments. In SVG units. Smaller tolerances will take longer to compute"
+              >?</span
+            >
+
+            <input type="text" value="4" data-config="rotations" />
+            <h3>Part rotations</h3>
+            <span
+              class="tooltip"
+              title="Number of rotations to consider when inserting a part. Larger rotations will take longer to compute, and may also take longer to converge to a good solution"
+              >?</span
+            >
+
+            <input type="text" value="10" data-config="populationSize" />
+            <h3>GA population</h3>
+            <span
+              class="tooltip"
+              title="The number of solutions in the Genetic Algorithm population. Larger populations will converge slower but may result in better solutions in the long run"
+              >?</span
+            >
+
+            <input type="text" value="10" data-config="mutationRate" />
+            <h3>GA mutation rate</h3>
+            <span
+              class="tooltip"
+              title="Mutation rate (in percent) at each generation of the Genetic Algorithm. A 100% mutation rate is equivalent to random sampling"
+              >?</span
+            >
+
+            <input type="checkbox" class="checkbox" data-config="useHoles" />
+            <h3>Part in Part</h3>
+            <span
+              class="tooltip"
+              title="Place parts in the holes of other parts. This will take much longer to compute "
+              >?</span
+            >
+
+            <input
+              type="checkbox"
+              class="checkbox"
+              data-config="exploreConcave"
+            />
+            <h3>Explore concave areas</h3>
+            <span
+              class="tooltip"
+              title="Try to solve for enclosed concave areas (eg. a jigsaw puzzle piece) This will take much longer to compute "
+              >?</span
+            >
+
+            <a href="#" class="button" id="configsave">Save Settings</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <div id="info">
+          <h2 id="info_time"></h2>
+          <div class="progress">
+            <div class="progress_inner" id="info_progress"></div>
+          </div>
+          <span class="subscript">Placement progress</span>
+
+                    <div id="info_placement">
+                        <div class="column left">
+                            <h1 class="label">
+                                <span id="info_efficiency"></span><sup>%</sup>
+                            </h1>
+                            <span class="subscript">Material Utilization</span>
+                        </div>
+
+                        <div class="column right">
+                            <h1 class="label" id="info_iterations"></h1>
+                            <span class="subscript">Iterations</span>
+                        </div>
+
+                        <div class="column left">
+                            <h1 class="label"><span id="info_placed"></span></h1>
+                            <span class="subscript">Parts placed</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="select">
+                <svg version="1.1" id="svg2" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="1147.592px" height="1397.27px" viewBox="0 0 1147.592 1397.27" enable-background="new 0 0 1147.592 1397.27" xml:space="preserve">
+          <!--            <rect width="300" height="200" fill="none" stroke="#010101"/>-->
+          <!-- <circle cx="250" cy="250" r="65" fill="none" stroke="#000000" /> -->
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="0.084624,14.349155 0.000000,13.216240 0.006501,12.664413 0.082337,11.893955 0.156201,11.456913 0.372654,10.559746 0.472561,9.772358 0.507614,9.555819 0.692765,8.617283 0.855488,7.571917 0.885773,7.406193 1.093979,6.415148 1.200390,6.029985 1.541420,5.040895 1.786713,4.499054 2.343468,3.522507 2.654272,3.071890 3.306586,2.280626 3.626438,1.945377 4.395012,1.248613 5.514315,0.589684 6.670555,0.196611 7.620682,0.027321 8.715237,0.000000 9.352185,0.047871 10.110069,0.181862 10.212098,0.182808 10.478004,0.196362 11.570734,0.297760 12.258476,0.438931 13.312319,0.779266 13.461412,0.831514 14.469807,1.213091 15.359634,1.498732 15.574846,1.576406 16.648256,2.007793 16.873482,2.108562 17.841110,2.587078 18.007080,2.675310 18.959141,3.217901 19.236671,3.395601 20.111706,4.021660 20.449158,4.299843 21.206360,5.016369 21.580769,5.439297 22.325127,6.446917 22.784740,7.329454 23.131226,8.361069 23.296963,9.308729 23.322239,10.444700 23.280090,11.038353 23.081367,12.239147 22.971867,12.692577 22.633049,13.750645 22.444798,14.211533 21.924553,15.246853 21.842587,15.399529 21.300144,16.347359 21.181309,16.539005 20.527241,17.515278 20.014606,18.108032 19.249191,18.799934 18.881962,19.086224 17.894135,19.746708 16.965626,20.372845 16.648136,20.561256 15.702797,21.050850 15.177788,21.266098 14.098518,21.600327 13.227367,21.742657 11.994297,21.771748 10.993573,21.635952 9.829590,21.284382 9.237221,21.038300 8.428460,20.602627 8.122805,20.475323 7.288748,20.138523 6.801251,20.002689 5.972807,19.777588 4.854252,19.573772 3.953743,19.265839 2.995007,18.768234 2.143866,18.126427 1.362265,17.299725 0.732750,16.329784 0.320937,15.339279 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="24.453707,12.573357 24.337616,11.482906 24.322239,11.015064 24.343193,10.496040 24.385147,10.092968 24.581556,8.928341 24.780210,8.236805 25.264532,7.066544 25.695936,6.324925 26.356369,5.476283 26.630545,5.167374 27.391987,4.413636 27.478237,4.331381 28.129753,3.732815 28.428692,3.343342 28.555969,3.187878 29.298380,2.337021 29.673002,1.972592 30.498070,1.291836 31.164770,0.868153 32.083527,0.432961 33.007702,0.156117 34.117695,0.000000 35.019943,0.001551 36.093727,0.156338 36.740486,0.319825 37.852768,0.728379 38.142124,0.851109 39.076195,1.302632 39.258900,1.398335 40.139954,1.896657 40.245113,1.958815 41.215897,2.557908 41.398342,2.679320 42.490028,3.461018 42.725811,3.647194 43.498711,4.318724 43.837254,4.660809 44.675163,5.645733 45.099388,6.286925 45.613361,7.313756 45.884167,8.091576 46.095245,9.101758 46.160652,9.636565 46.203396,10.778458 46.197166,11.130852 46.121464,12.169140 45.859852,13.223137 45.457455,14.139435 45.380291,14.302505 45.353405,14.355408 45.338123,14.402336 45.139511,15.167458 44.995117,15.596352 44.587364,16.572964 44.391113,16.965042 43.863663,17.859833 43.285538,18.578732 42.495499,19.313049 41.405094,19.978462 40.342098,20.362846 39.962376,20.474140 38.680981,20.765049 38.527267,20.796005 37.655365,20.949478 37.082893,21.114155 36.312466,21.236820 35.183804,21.277122 34.572067,21.240242 33.511959,21.073387 32.859810,20.898640 31.883732,20.522865 31.512987,20.352249 30.581533,19.849281 30.419064,19.755295 29.457197,19.160553 29.010880,18.827629 28.190460,18.096367 27.380945,17.412457 27.208059,17.255226 26.476152,16.539051 26.064724,16.046410 25.423128,15.099163 25.109978,14.514153 24.673122,13.444134 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="47.203396,6.909891 47.225693,6.043917 47.391678,5.025202 47.686115,4.112221 48.159073,3.163408 48.802650,2.286629 49.678341,1.442869 50.499538,0.869320 51.445629,0.409361 52.529030,0.102892 53.566723,0.000000 54.738026,0.100878 55.777637,0.389332 56.171032,0.526636 57.171764,0.950865 57.753540,1.186428 58.069202,1.223139 58.636196,1.341866 59.689167,1.664194 60.230339,1.885727 61.138958,2.358818 61.983280,2.995403 62.756187,3.810579 63.157272,4.331835 63.717175,5.239166 63.942677,5.676682 64.366165,6.681341 64.612305,7.743351 64.684067,9.010349 64.576492,10.033062 64.258575,11.199032 63.828255,12.140659 63.229736,13.032352 62.676105,13.660591 61.902847,14.335003 61.268131,14.766460 60.114136,15.362568 59.907619,15.460075 59.690781,15.553143 59.378281,15.751141 58.381878,16.166843 57.323730,16.409859 55.610416,16.331757 54.542950,15.981735 54.130825,15.814045 53.218929,15.366772 52.874462,15.170460 51.798779,14.465725 51.264202,14.025997 50.523018,13.267838 50.370693,13.100582 49.707832,12.318962 49.037521,11.540863 48.781582,11.200329 48.190475,10.293961 47.890442,9.710930 47.517925,8.757935 47.317665,7.944290 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="65.914375,9.823184 65.729446,8.781138 65.684067,8.064839 65.728378,7.163435 65.805466,6.605364 66.057137,5.507825 66.417892,4.600744 66.955627,3.686464 67.559944,2.942232 68.389648,2.187044 68.820221,1.857286 69.811920,1.223417 70.312836,0.882204 71.191650,0.462837 72.441986,0.086321 73.925865,0.000000 74.581108,0.116718 74.723892,0.137201 75.080032,0.128130 76.298706,0.335976 77.296677,0.715393 78.034927,1.113695 78.919632,1.753624 80.129219,3.496414 80.401672,4.485235 80.402779,4.489260 80.703995,5.588092 80.817398,6.380114 80.834587,7.398745 80.530449,8.815296 80.514236,8.849743 80.611206,9.384893 80.295952,11.442540 79.762085,12.459752 78.613617,13.693092 77.673767,14.275219 76.798859,14.837601 76.368484,15.069820 75.368118,15.514545 74.838531,15.696372 73.843674,15.943120 72.632217,16.006676 71.592697,15.861998 69.875580,15.055177 68.939285,14.199886 68.719437,13.978447 68.232994,13.438187 67.345978,12.601420 66.648109,11.639865 66.171417,10.630172 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="81.954056,9.949772 81.834587,8.838123 81.841568,8.094570 81.953369,7.210835 82.132362,6.487389 82.489578,5.536224 82.772659,4.963749 83.323723,4.083160 83.925293,3.375824 84.669624,2.722435 84.827171,2.579121 84.998138,2.341393 85.957939,1.460850 86.879791,0.911499 87.712364,0.563469 88.722534,0.300713 89.046188,0.234150 90.397293,0.028336 91.107552,0.000000 92.366653,0.090080 92.990860,0.197586 93.958954,0.465183 94.187683,0.537743 95.158875,0.886421 95.828323,1.088924 96.589081,1.204536 97.077797,1.318607 98.128876,1.652756 99.480591,2.499622 100.220749,3.279587 100.668434,3.878174 101.209274,4.811691 101.286552,4.953186 101.731766,5.819523 102.242126,6.707062 102.444824,7.127975 102.845261,8.143108 103.026993,8.803692 103.195908,9.842384 103.237106,10.312721 103.252609,11.457329 103.222992,11.937084 103.072800,13.028097 102.895874,13.723436 102.623550,14.443632 102.542099,14.866903 102.414032,15.675915 102.268967,16.246267 101.900124,17.285137 101.608551,17.893709 101.030289,18.831753 100.723434,19.249527 99.916656,20.179483 99.492752,20.585873 98.632500,21.270832 97.630554,21.810028 96.668854,22.123360 95.827820,22.277248 94.642075,22.332994 93.714363,22.240654 92.669243,21.978901 92.397491,21.897888 91.526077,21.595459 90.770393,21.410278 90.105934,21.166889 89.281662,20.756546 88.467010,20.476387 88.433807,20.464764 87.342880,20.076128 86.770119,19.805531 85.891014,19.277962 85.053871,18.551785 84.376205,17.717560 84.018723,17.172089 83.485306,16.142626 83.402740,15.970963 82.862289,14.755934 82.668060,14.174994 82.406570,13.041946 82.327301,12.453499 82.295181,11.670181 82.266708,11.550507 82.000580,10.248783 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="133.590958,17.741217 133.302124,16.696442 133.201202,15.909266 133.206650,15.538828 133.279083,14.945827 133.509735,13.953861 133.897873,13.048957 134.357880,12.349787 134.578583,12.057862 135.167847,11.376071 134.893692,10.967884 134.506302,10.104015 134.329102,9.414877 134.310059,9.365366 134.252869,9.118462 134.215729,8.974010 134.212662,8.944811 134.056412,8.270138 134.030777,7.129795 134.185822,6.290430 134.471970,5.475178 134.967575,4.551522 135.107788,4.371234 135.452377,3.741964 135.830017,3.210411 136.620209,2.335213 136.971100,2.007923 137.880493,1.295094 138.643448,0.870106 139.592316,0.521984 139.904633,0.427647 140.893234,0.190903 141.239807,0.130630 142.429825,0.000000 143.253983,0.031731 144.308502,0.230495 145.352753,0.658813 146.225372,1.245850 146.693481,1.641628 147.460526,2.449882 147.525391,2.520615 148.190247,3.271095 148.537750,3.760315 149.083984,4.736315 149.349625,5.395708 149.663376,6.596012 149.748367,7.487762 149.666901,8.727098 149.622116,9.074495 149.380280,10.326479 149.232254,10.831770 148.848816,11.794174 148.784943,11.941998 148.276611,13.031162 147.851288,13.685387 147.821106,13.720062 148.202957,15.507399 148.070404,16.560020 148.032242,16.787201 147.888351,17.470495 147.862442,17.582104 147.561157,18.769560 147.412140,19.203836 147.040207,20.053423 146.689926,21.006741 146.392929,21.591999 145.698700,22.635468 144.809448,23.484678 144.149094,23.881397 143.950653,24.982771 143.553268,25.836296 143.241241,26.749054 143.098328,27.091208 142.564880,28.162750 142.373871,28.489136 141.775513,29.369251 141.399323,29.814632 140.562134,30.618538 140.383621,30.775936 139.616470,31.396433 139.115051,31.868984 138.627319,32.237038 137.681122,32.800522 137.294373,32.896275 137.012497,33.626266 136.426025,34.525269 136.138626,34.894318 135.411255,35.682526 135.080170,35.987885 134.073715,36.776268 134.024918,36.813625 133.164093,37.457954 132.665680,37.755821 131.624023,38.239597 131.275452,38.374008 130.170273,38.717419 130.067047,38.747330 128.861160,39.071854 127.978462,39.163754 126.940262,39.106171 126.921310,39.101761 126.792740,39.251019 125.954628,39.861771 125.367477,40.189709 124.465858,40.559250 123.523529,40.982998 123.037987,41.149734 121.981705,41.407093 121.444229,41.483864 120.386505,41.531258 119.786453,41.493530 118.708954,41.308167 118.118469,41.138172 117.999794,41.089352 117.298973,41.711685 116.311157,42.307518 115.786469,42.553928 114.769028,42.908531 114.514053,42.984028 113.519730,43.227730 112.972031,43.305698 111.809135,43.355095 111.326118,43.333832 110.212357,43.187729 109.506775,42.999104 108.496727,42.581528 107.788872,42.157288 106.991364,41.501976 106.895050,41.419106 106.329857,40.910027 105.877327,40.387615 105.212563,39.395008 104.884972,38.729130 104.525391,37.659466 104.400116,37.106876 104.269058,36.034222 104.252609,35.540909 104.272705,35.175316 104.363037,34.607536 104.629326,33.609028 104.723145,33.320866 105.167213,32.172226 105.756409,31.245451 106.487068,30.482340 107.295784,29.895504 108.392883,29.367790 108.728699,29.232246 109.231415,29.066256 109.421684,28.928463 110.177834,28.540163 111.193588,28.201262 112.021965,28.057924 113.106689,28.035524 114.382858,28.313900 115.452026,28.830606 116.144783,29.425083 116.380058,29.569674 116.496048,29.657576 116.601791,29.566179 117.208893,29.166237 118.304886,28.633650 119.501442,28.352184 120.515305,28.342323 121.409576,28.479816 121.670273,28.564714 121.712715,28.404894 121.974648,27.757727 122.502266,26.813524 122.921257,26.245924 123.677223,25.454054 124.073929,25.109844 124.936111,24.493370 125.688530,24.111647 126.809235,23.742424 127.724701,23.602089 128.336899,23.610685 128.486435,22.859814 128.730804,22.149164 129.288879,21.038961 129.720749,20.410843 130.458862,19.600634 131.017151,19.129364 132.016708,18.488323 132.781326,18.146736 133.656967,17.904362 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="184.452194,0.908528 185.021805,0.636048 186.163788,0.240799 186.824249,0.098469 187.899612,0.000000 188.415436,0.000477 189.744583,0.124672 190.766144,0.423291 191.740295,0.925019 192.392731,1.389969 193.128891,2.093491 193.235519,2.201046 193.941910,2.953286 194.449020,3.709603 194.869339,4.632607 195.113068,5.580765 195.200287,6.728070 195.204620,7.084626 195.143097,8.276684 195.151764,8.618271 195.147461,8.859995 195.080597,9.954762 195.070206,10.079241 194.962753,11.092768 194.710571,11.992535 194.256485,12.954777 193.908905,13.511230 193.276947,14.299507 193.411377,14.590271 193.621277,15.591072 193.581345,16.905987 193.271759,18.035534 193.191956,18.281506 192.887299,19.091173 192.786835,19.583239 192.770920,19.656223 192.535202,20.671715 192.419449,21.048016 191.983582,22.175781 191.656387,23.123159 191.495712,23.497593 190.926620,24.595579 189.718506,25.798525 189.208771,26.059969 189.212082,26.075367 189.243164,27.081503 189.093704,28.071346 188.789948,28.981617 188.209351,30.059027 187.848389,30.578285 187.213287,31.301525 186.540894,32.147804 185.867111,32.758461 184.925964,33.365948 184.207932,33.696606 183.047501,34.042793 182.453079,34.152054 181.735291,34.205013 181.513092,35.026947 181.364090,35.443966 180.922699,36.426216 180.655899,36.893703 180.050873,37.750473 179.437973,38.379562 178.615723,38.992992 177.960495,39.356697 177.017258,39.725266 176.564423,39.859444 175.577896,40.063152 175.155960,40.117279 174.076401,40.172985 173.564621,40.152481 172.895004,40.063831 172.259781,41.043549 171.671997,41.696671 170.889420,42.330086 170.302338,42.695427 169.289001,43.163673 168.355911,43.411491 167.249771,43.507217 166.136475,43.378437 165.142349,43.052685 164.488037,42.739391 164.364471,42.659050 164.338684,42.694283 163.786102,43.259991 162.946365,43.905632 162.174728,44.325146 161.208099,44.667603 160.573395,44.812187 159.304520,44.949081 158.383301,44.895531 157.343781,44.659138 156.727097,44.440506 155.826035,43.996525 155.053604,43.620865 154.068771,43.212494 153.427231,42.840111 152.563766,42.171658 151.796219,41.254425 151.255600,40.219913 150.987198,39.449978 150.785065,38.395042 150.748367,37.595364 150.819534,36.868301 150.820023,36.863400 150.904922,36.011497 150.903519,35.906837 150.904343,35.791855 150.935684,34.660240 150.947327,34.471218 151.061325,33.279125 151.126053,32.891708 151.361572,31.911221 151.482285,31.530582 151.862259,30.575018 152.154266,30.027000 152.733337,29.181850 153.313904,28.562281 154.174393,27.886593 154.880356,27.482471 155.824905,27.111622 156.515549,26.937767 157.696945,26.796417 158.397476,26.800861 159.582062,26.957863 160.282593,27.145443 161.336456,27.580490 161.979889,27.952873 162.126816,28.066383 162.271606,27.903046 162.807755,27.434671 163.683289,26.847731 164.480835,26.479048 165.443405,26.206976 166.301239,26.103065 167.452682,26.142672 168.324249,26.313599 168.356323,26.325415 168.479004,26.178293 168.730515,25.986004 168.754272,25.956329 169.540894,25.280979 170.415070,24.776711 170.937027,24.543037 171.894196,24.227306 172.312561,24.124214 173.319656,23.956949 174.048218,23.932140 174.695770,23.994829 175.045349,23.402336 175.480133,22.842159 176.209717,22.114902 176.696289,21.727425 177.780594,21.045811 178.516541,20.719831 178.782928,20.645323 178.439331,19.711815 178.293182,18.362579 178.487274,16.953524 178.948776,15.756598 179.378723,15.126972 179.715347,14.721874 180.544189,13.896542 181.127838,13.451195 181.344482,13.327055 181.017242,12.874212 181.011932,12.866846 180.552231,12.226347 180.212372,11.595634 179.853745,10.659789 179.738068,10.278784 179.439743,8.967047 179.410797,7.870028 179.503204,7.334417 179.579956,7.007836 179.933990,5.824673 180.078079,5.445577 180.585464,4.355719 180.920563,3.809625 181.586090,2.960969 182.097595,2.457725 182.897064,1.851494 183.443863,1.527415 183.512238,1.496774 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="196.439377,25.324059 196.240448,24.127821 196.204620,23.559772 196.217255,23.234760 196.287872,22.709431 196.523499,21.695883 196.781860,21.009129 197.302429,20.036032 197.820587,19.348209 198.668274,18.524942 199.339462,18.043034 200.320602,17.538952 200.950958,17.305779 201.922272,17.074261 201.935608,16.741302 202.145630,15.628489 202.395844,14.889229 202.901291,13.884727 203.438370,13.147730 204.180359,12.417433 204.761520,11.978348 205.644073,11.477028 206.368607,11.190176 206.558289,11.144285 206.467789,10.706671 206.412842,10.008234 206.459869,9.006527 206.550308,8.420287 206.860016,7.252130 206.989380,6.874996 207.420441,5.860177 207.611420,5.489889 208.147476,4.616769 208.189560,4.550319 208.804276,3.609424 208.871170,3.511627 209.488068,2.649396 209.844452,2.241344 210.625702,1.504785 211.121765,1.131649 212.003876,0.610261 212.788208,0.294904 213.869598,0.040838 214.941071,0.000000 216.056747,0.173833 216.554993,0.299169 217.775589,0.728626 218.449509,1.074338 219.533386,1.831315 219.859695,2.097888 220.848938,3.038640 221.686615,3.824768 221.735718,3.871984 222.608185,4.731616 222.867813,5.026041 223.478607,5.825344 223.773743,6.304765 224.230072,7.246807 224.435394,7.824750 224.713852,9.005417 224.781982,9.455589 224.866852,10.686516 224.863556,11.114517 224.775497,12.158020 224.707047,12.580391 224.442139,13.676426 224.404343,13.816751 224.100739,14.837671 223.898010,15.337250 223.372574,16.341848 223.053802,16.822983 222.336349,17.695093 222.330078,17.702705 221.627029,18.551191 221.227051,18.945612 220.229095,19.749172 219.415512,20.204905 218.432632,20.556244 217.780594,20.704527 217.589310,20.724478 217.538483,21.042088 217.417847,21.520651 217.083679,22.480085 216.721207,23.181961 216.105011,24.048306 215.623260,24.570202 214.756210,25.297874 214.005371,25.749111 212.977264,26.164612 212.557770,26.281855 212.537674,26.573502 212.303375,27.517254 211.851105,28.535862 211.500229,29.121164 210.879425,29.917450 210.460632,30.349480 209.614349,31.052650 209.081223,31.401394 208.097610,31.895208 207.402283,32.136089 206.384186,32.344284 205.987366,32.396240 204.976135,32.455624 204.086014,32.566608 203.621918,32.585648 202.619324,32.543476 201.318192,32.159870 200.442322,31.645079 199.680908,30.988049 199.020065,30.167969 198.756134,29.777142 198.265549,28.899399 198.007401,28.482048 197.336929,27.406315 197.191376,27.142056 196.679657,26.081493 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="226.098190,12.288847 225.911163,11.251863 225.866852,10.724390 225.878479,9.657128 225.879211,9.617053 225.907181,8.507264 225.972656,7.971796 226.262878,6.662706 226.834167,5.489893 227.505386,4.673951 227.660767,4.500328 228.397217,3.743326 228.694229,3.478566 229.544342,2.822948 230.285645,2.413054 231.244980,2.059342 231.397202,2.008127 232.118317,1.788313 232.118896,1.787971 232.874039,1.194295 233.414368,0.861052 234.321045,0.435271 235.050034,0.207970 236.079208,0.036101 236.650009,0.000000 237.850281,0.047015 238.422104,0.129053 239.506943,0.401249 239.859512,0.514980 240.951096,0.948744 241.134796,1.029476 242.043472,1.468322 242.064606,1.478642 243.059326,1.969386 243.651581,2.362146 244.509247,3.103537 244.651459,3.219068 244.912506,3.359025 244.992401,3.403558 245.858368,3.904914 246.298798,4.220480 247.127426,4.945219 247.605438,5.487179 248.180893,6.340407 248.543015,7.106743 248.834976,8.086916 248.948639,9.012630 248.894958,10.200343 248.610748,11.308934 248.478470,11.578097 248.987946,11.691300 249.672394,11.940435 250.571152,12.407785 250.984024,12.670710 251.800247,13.297106 252.366653,13.880634 252.957794,14.700359 253.084000,14.891371 253.657104,15.841038 253.724045,15.937958 253.879410,16.112436 254.182953,16.423403 254.371216,16.636984 255.185822,17.661808 255.588196,18.350695 255.985031,19.328028 256.184357,20.570374 256.099731,21.821268 256.017578,22.164417 256.774841,22.383965 257.574707,22.761286 258.461182,23.366936 259.081421,23.946512 259.757324,24.804798 260.172974,25.537346 260.557465,26.543076 260.741821,27.576681 260.729248,28.618664 260.661041,28.987154 260.802307,29.031530 261.820770,29.522245 262.236816,29.769087 263.124481,30.405455 263.419281,30.648911 264.245148,31.431711 264.672241,31.946648 265.215698,32.789558 265.546387,33.509178 265.863556,34.576401 265.977509,35.267105 266.015717,36.266495 265.962921,36.924889 265.733276,38.067932 265.488403,38.776833 265.008850,39.728195 264.659576,40.260323 263.880615,41.195076 263.617462,41.470425 263.003784,42.030685 262.573181,42.534271 262.213318,42.885643 261.435547,43.519142 260.876770,43.873436 259.940399,44.321899 259.496735,44.489838 258.453796,44.786400 257.995789,44.921440 257.079132,45.422890 256.892120,45.516296 255.963760,45.937462 255.355148,46.133400 254.341537,46.335754 253.496658,46.374176 252.394867,46.256760 251.591583,46.047409 250.662933,45.650696 250.000427,45.251503 249.222427,44.621254 248.612305,43.932411 248.001007,42.956947 247.657043,42.148445 247.377151,41.027588 247.310486,40.043518 247.432266,38.934792 247.476715,38.658348 247.556946,38.280861 247.179672,38.231197 246.062897,37.942986 245.328766,37.636852 244.389130,37.076664 243.819321,36.627518 243.067444,35.857296 242.519592,35.054649 242.086807,34.097134 241.856720,33.264618 241.729492,32.161274 241.751801,31.364597 241.791885,31.132298 241.145996,31.108433 240.355499,30.963833 239.320175,30.615070 238.516541,30.188347 237.691803,29.559637 237.187836,29.063063 236.425949,28.093655 236.055237,27.469780 235.621475,26.461290 235.491516,26.088785 235.320526,25.459145 235.290634,25.436197 234.684372,24.795433 234.065750,23.890348 233.737564,23.243847 233.382294,22.239183 233.237183,21.595879 233.161880,20.873207 233.082703,20.865324 232.501617,20.744247 231.512665,20.425705 230.850189,20.111446 229.996201,19.558947 229.595856,19.244869 228.841507,18.533304 228.421921,18.032795 227.863983,17.182671 227.693893,16.885298 227.199829,15.883974 227.025818,15.439272 226.721634,14.410950 226.695099,14.314960 226.476257,13.465139 226.214737,12.727667 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="299.735260,30.102106 299.260010,31.007355 298.582520,31.867752 298.292236,32.486057 297.953766,33.033112 297.312164,33.844246 296.245636,34.669289 295.249268,35.108551 294.339386,35.337860 293.498444,35.404030 293.092316,35.498703 292.440735,35.571762 291.360138,35.565605 290.214996,35.313576 290.168030,35.292168 290.056580,35.483402 290.020477,35.538673 289.900940,35.950684 289.707733,36.439495 289.237762,37.363800 288.586029,38.201649 287.807983,38.882652 287.096893,39.336243 286.063080,39.793728 285.604736,39.950718 284.329529,40.267338 283.381378,40.336468 281.959808,40.196983 281.519775,40.117943 280.261292,39.786331 279.748535,39.595974 278.752014,39.110554 278.157806,38.720787 277.352966,38.032093 277.101166,37.729282 277.096100,37.732162 276.131317,38.185139 275.175659,38.440765 274.048798,38.535393 273.576294,38.535069 272.543121,38.446865 271.817261,38.285828 270.803619,37.914108 269.624603,37.087364 268.958069,36.294739 268.530090,35.601650 268.114197,34.637451 268.109283,34.626003 267.963898,34.284805 267.885223,34.077805 267.527435,33.011208 267.487030,32.880260 267.090729,31.474163 267.015717,30.305971 267.120941,29.592464 267.924683,28.007666 268.670685,27.271816 269.078033,26.939346 269.189148,26.864874 269.448517,26.579039 269.748840,26.293646 270.633362,25.569778 270.932495,25.356165 271.945007,24.729126 272.185089,24.596268 273.153076,24.120964 273.492828,23.981003 274.689423,23.577658 275.700867,23.433426 276.830322,23.480692 278.216553,23.916025 279.294495,24.602032 280.094879,23.995489 280.479462,23.750629 281.442780,23.242384 281.993805,23.022713 283.002289,22.740095 283.470398,22.651026 283.939575,22.602604 284.092041,21.982862 284.487000,20.954828 285.212860,19.891195 286.040344,19.135698 286.975677,18.570532 288.175476,18.136461 288.667053,18.014231 288.676666,17.085825 288.996735,15.814598 289.527069,14.803167 290.059052,14.091940 290.860077,13.316246 291.403778,12.905228 292.293884,12.389305 292.535004,12.264748 293.574158,11.790268 294.650085,11.246979 295.110474,11.063622 295.412292,10.973434 295.389954,10.263184 295.559357,9.191833 295.825012,8.368195 296.301239,7.424004 296.773987,6.753616 297.538849,5.950775 298.029358,5.541542 299.028229,4.885727 299.141357,4.815254 299.501007,4.602882 299.673462,4.210228 300.209442,3.217018 300.903778,2.376991 301.679810,1.744034 301.886810,1.590508 302.818085,0.964104 303.262909,0.720284 304.205627,0.309731 305.114594,0.084679 306.169708,0.005707 306.487244,0.000000 307.815430,0.051521 308.094055,0.076309 309.289948,0.243271 309.745850,0.346313 310.867584,0.700500 311.373505,0.916946 312.494019,1.533012 312.796234,1.725311 313.693512,2.380508 313.894653,2.542084 314.679932,3.234833 314.770111,3.317978 315.439087,3.962379 316.007233,4.425568 316.363953,4.773590 317.066986,5.593834 317.419464,6.113220 317.749207,6.740494 318.457489,7.477196 318.836090,7.970665 319.447968,8.984222 319.799408,9.896706 320.014801,11.003967 320.055908,11.779854 319.983246,12.619911 320.032684,13.493492 320.020142,13.959986 319.906342,14.986986 319.759918,15.621384 319.367981,16.717567 319.192108,17.110954 318.691650,18.032633 318.354309,18.521786 317.668762,19.319288 317.545807,19.453278 316.674805,20.342560 316.575500,20.439056 315.669373,21.277002 315.577728,21.358126 314.929382,21.907118 314.617950,22.240824 314.203918,22.604933 313.312866,23.244698 312.800812,23.536053 311.830750,23.959867 310.991669,24.179827 309.801514,24.300272 308.847626,24.232668 307.863434,23.989365 307.761108,23.951731 307.760986,24.086866 307.635315,24.913769 307.320984,25.927336 306.945587,26.696354 306.341187,27.565626 305.522217,28.344130 304.636963,28.895334 304.363068,29.067846 304.000427,29.260675 303.018127,29.693783 301.730988,29.927340 300.646912,29.866266 300.575104,29.861292 299.946625,29.809650 299.833527,29.784222 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="325.480804,16.666971 324.575378,16.230101 323.534637,15.428566 322.883667,14.667818 322.533112,14.168793 321.983368,13.201780 321.826599,12.886909 321.411957,11.924860 321.168091,10.992371 321.055908,9.923901 321.144562,8.772383 321.261566,8.329485 321.296661,8.104195 321.348389,7.577679 321.656342,6.488959 322.071320,5.637175 322.184448,5.374716 322.644989,4.616776 322.822083,4.400030 322.859497,4.344900 322.962158,4.228562 323.449432,3.632153 324.154785,2.992661 325.003601,2.427847 325.401367,2.202387 325.455383,2.176691 325.598175,2.095978 326.009430,1.913054 326.371582,1.740727 326.782196,1.579045 327.462646,1.363985 327.491516,1.346995 327.833313,1.177986 327.912781,1.135235 328.851562,0.756958 329.068604,0.678475 330.054779,0.361586 330.233826,0.315060 330.426605,0.263020 331.435822,0.034087 332.679657,0.000000 333.684082,0.170632 334.756653,0.559084 335.798096,1.164637 336.969849,2.346655 337.520081,3.312187 337.488068,3.330414 337.489838,3.333048 337.844727,4.323080 338.048248,4.813717 338.122253,5.913540 337.994995,7.046294 337.994995,7.046402 337.994995,7.046412 337.994995,7.046416 337.989655,7.064280 337.962585,7.154654 337.967865,7.608508 337.968140,7.632317 337.968140,7.632325 337.968140,7.632332 337.966431,7.781125 337.918549,9.154432 337.432892,10.740875 336.891022,11.606516 336.738647,11.828545 336.411346,12.265001 336.130371,12.690123 335.343506,13.513206 335.045868,13.729792 334.501526,14.125879 334.120636,14.364029 333.168488,14.870119 333.120392,14.895163 332.117798,15.406469 331.108490,15.724754 330.073059,15.869987 330.003052,15.879019 329.609467,15.925402 329.268738,16.151316 328.332672,16.631800 328.219879,16.633192 327.331360,16.842871 326.495758,16.654453 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="345.473602,17.526201 345.176178,17.371040 345.174774,17.370216 344.319672,17.113834 343.081543,16.412270 342.298859,15.697949 342.034119,15.425845 341.210724,14.472414 341.036316,14.251488 340.422546,13.399613 340.170319,12.987020 339.674561,12.018459 339.390900,11.215614 339.122284,9.931376 339.215302,9.335551 339.305542,8.186985 339.459595,7.770869 339.471039,7.697478 339.516266,7.617735 339.629089,7.312934 340.047882,6.680439 340.095306,6.596844 340.375275,6.182433 340.389252,6.164897 340.435669,6.094764 340.473297,6.059326 340.503143,6.021834 340.598206,5.868720 340.976257,5.182989 341.100159,4.976962 341.841888,3.842401 342.306763,3.282542 343.082672,2.539316 343.683838,2.086106 344.798248,1.436038 345.167053,1.251663 346.248718,0.795446 346.790802,0.621759 347.836792,0.386751 347.873138,0.378805 348.721313,0.198567 348.834778,0.160131 350.101959,0.000000 350.329987,0.017184 350.425873,0.006360 350.690735,0.044371 351.235840,0.085449 352.175140,0.301821 353.328339,0.759201 353.799408,0.992482 354.753815,1.567250 355.603729,2.311979 356.241455,3.110733 356.685669,3.855406 357.143250,4.931863 357.318085,5.471760 357.552917,6.500668 357.568207,7.853897 357.352722,8.907518 357.264740,9.243531 357.194153,9.463667 357.140228,9.631812 357.244690,10.394972 357.200806,11.447054 356.661865,13.095212 356.242889,13.720377 356.104706,13.926579 356.082031,13.964656 356.071381,13.982579 355.881927,14.438027 354.936951,15.699286 354.496613,16.054621 354.106537,16.369404 351.656219,17.048620 351.008667,16.958578 350.576965,16.898550 349.854309,17.509398 346.459106,17.976307 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="358.673340,10.575710 358.577362,9.479980 358.568237,9.060955 358.627014,7.717619 358.650696,7.444578 358.795074,6.335010 358.967316,5.637121 359.427643,4.393453 360.153656,3.253858 360.671234,2.730613 360.723785,2.649896 361.407532,1.775655 362.343384,0.967016 363.293915,0.425161 364.863464,0.005209 365.959015,0.000000 366.762360,0.098533 367.757416,0.351392 368.346130,0.564178 369.348328,1.041856 369.979614,1.439052 370.826721,2.121843 370.920410,2.200365 371.760834,2.932441 372.167206,3.358190 372.865936,4.240123 373.077606,4.541395 373.632599,5.436767 373.708923,5.566660 374.341156,6.702793 374.666016,7.552435 374.909485,8.628225 374.946991,9.847738 374.780029,10.875591 374.489899,11.780870 374.034698,12.701391 373.350342,13.621712 372.539307,14.379105 371.586761,14.993883 370.652161,15.383589 370.261261,15.517672 369.563324,15.707695 369.144226,15.921352 368.588928,16.141846 367.589386,16.434141 366.969574,16.550636 365.886566,16.645201 365.211853,16.632685 364.181122,16.504017 363.213989,16.223618 362.222168,15.756472 361.330475,15.131754 360.590668,14.396833 360.293762,14.057034 359.643982,13.198027 359.171112,12.311234 358.836090,11.340208 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="376.469238,8.985437 376.084412,7.798580 375.947021,6.466862 375.990662,6.064152 376.017456,5.570868 376.268738,4.490448 376.678650,3.528198 377.350891,2.528652 378.069458,1.804300 378.842102,1.230864 379.772430,0.737532 380.402069,0.485033 381.398499,0.203707 382.045837,0.091036 383.354004,0.000000 384.073639,0.031187 385.416351,0.242498 385.926971,0.366533 386.920624,0.696356 387.414215,0.907660 388.390808,1.426657 388.476624,1.473963 389.434540,2.021290 389.584076,2.112244 390.710541,2.840321 391.349518,3.384371 392.129425,4.248915 392.946899,6.188725 393.015747,7.268377 392.952850,8.134705 392.724640,9.212778 392.656403,9.478445 392.356598,10.467340 392.212921,10.850939 391.765686,11.845911 391.469604,12.367521 390.878906,13.212423 390.495728,13.664675 389.767365,14.378260 389.168854,14.839689 388.262421,15.381102 388.073029,15.485704 387.047607,16.007624 384.699280,16.227537 383.681030,15.930262 382.656403,15.417433 381.770416,14.752184 381.683990,14.684938 380.721191,13.909090 379.862701,13.244482 379.717865,13.125406 378.747986,12.279207 378.300720,11.799810 377.555878,10.816259 377.448700,10.665873 376.854950,9.779932 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="397.649902,10.954758 397.647003,10.953182 396.683899,10.428333 396.339630,10.211227 395.246613,9.420567 395.229462,9.373665 394.203491,8.054195 394.212524,6.596962 394.015747,6.059689 394.095490,5.737194 394.555237,4.706722 395.295471,3.617462 395.947876,2.913506 397.011963,2.065540 397.381226,1.811417 398.611542,1.086182 398.999115,0.891808 399.355682,0.742294 399.402222,0.716152 400.050934,0.450760 400.129028,0.418011 400.894012,0.204144 400.949799,0.195816 401.128632,0.147293 401.860168,0.037418 402.054077,0.030968 402.203796,0.008617 402.470673,0.017113 402.985229,0.000000 403.261871,0.042301 403.349091,0.045078 403.518951,0.081612 404.148804,0.177917 404.438904,0.279457 404.530121,0.299072 404.678650,0.363384 405.163818,0.533203 405.475433,0.708305 405.677979,0.795986 405.879059,0.935108 406.136566,1.079803 406.396484,1.293091 406.545288,1.396057 406.753387,1.585987 406.952393,1.749298 407.086456,1.889961 407.179321,1.974728 407.266083,2.078461 407.491058,2.314556 407.710297,2.609646 407.845276,2.771042 407.975067,2.966003 408.097748,3.131092 408.211945,3.321777 408.231537,3.351223 408.244232,3.375687 408.424103,3.676041 408.664368,4.186165 408.754761,4.360558 408.798279,4.470520 408.868378,4.619347 409.066437,5.162411 409.328796,6.151413 409.434906,6.898582 409.458710,7.937252 409.458710,7.937290 409.419769,8.513371 409.259430,9.521168 409.213806,9.752567 408.994019,10.684937 408.938843,10.985764 408.114471,12.609161 407.325531,13.441994 405.450256,14.255928 405.329468,14.335327 405.252014,14.341972 405.023315,14.441227 403.928345,14.448387 402.738525,14.106377 402.530304,14.064072 402.457642,14.025646 402.190460,13.948841 401.587036,13.565182 401.558014,13.549828 401.135986,13.282509 400.265350,12.630520 399.491333,12.084003 399.158173,11.855053 398.462677,11.400624 398.395691,11.360188 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="419.214600,12.950447 419.213501,12.950632 416.729309,14.354683 415.428619,14.434441 413.673309,14.083458 412.667145,13.590027 410.937469,11.693401 410.543091,10.658018 410.458710,8.415680 410.812469,7.224590 411.253784,6.282137 412.004150,5.154528 412.438049,4.623669 413.167145,3.891590 413.213684,3.845732 414.040131,3.046326 414.373322,2.762146 415.320221,2.051865 415.756042,1.772789 416.643860,1.292870 416.973938,1.136120 418.234070,0.616478 418.716064,0.457520 419.705048,0.209221 420.083435,0.136097 421.079285,0.000000 422.212158,0.030361 423.413452,0.260651 424.620605,0.737061 424.698578,0.786205 425.840057,1.215565 426.727844,1.880405 427.673462,2.953789 428.265076,3.995747 428.335693,7.321278 427.722198,8.517294 426.075470,9.757965 425.193604,10.679237 424.186737,11.122700 423.201263,11.393681 422.252350,11.509840 421.904999,11.563677 421.487488,11.678484 421.415192,11.725056 420.926666,11.987556 419.940521,12.420591 419.854065,12.455257 419.453339,12.765570 419.397522,12.846622 419.216736,12.948801 "
+          />
+          <polygon
+            fill="none"
+            stroke="#010101"
+            stroke-miterlimit="10"
+            points="429.428589,10.892772 429.335693,9.845654 429.342377,9.212853 429.490204,7.869533 429.659973,7.136260 430.000183,6.190644 430.129395,5.882925 430.599640,4.908718 430.755310,4.624026 431.450500,3.493081 431.719849,3.118429 432.423248,2.275572 432.861908,1.842602 433.671936,1.184319 434.442139,0.721050 435.431396,0.302078 436.512756,0.053041 437.530304,0.000000 438.545380,0.110205 439.641235,0.411566 440.219543,0.632720 441.251160,1.146611 441.678345,1.402695 442.653870,2.096131 443.236206,2.629614 443.988403,3.512913 444.545837,4.457268 444.933655,5.484352 445.042206,5.829888 445.323181,6.940456 445.404602,7.402629 445.510651,8.448996 445.489716,9.258384 445.328796,10.304160 445.055359,11.192830 444.427673,12.511466 443.807587,13.392290 443.003052,14.201458 442.717316,14.456363 441.884521,15.114171 441.656921,15.278277 440.808716,15.835004 440.632874,15.942479 439.647522,16.501978 439.562286,16.548685 438.652710,17.029226 437.638275,17.363564 436.588989,17.522881 435.361389,17.470680 434.255768,17.205164 433.310150,16.809204 432.422394,16.255793 431.947144,15.893828 431.075317,15.090739 430.342407,14.087783 429.880127,13.094909 429.614471,12.205094 429.449402,11.070864 "
+          />
+          <polygon
+            fill="rgb(82,16,16)"
+            fill-opacity="0.678"
+            points="343,333 318,300 318,259 343,226 384,214 425,226 450,259 450,300 425,333 384,316 "
+            stroke="rgb(0,0,0)"
+            stroke-miterlimit="10"
+            stroke-opacity="1.000"
+            stroke-width="1"
+          />
+        </svg>
+            </div>
+            <div id="bins"></div>
+            <input id="fileinput" type="file" style="visibility: hidden" />
+        </div>
+
+        <div id="messagewrapper">
+            <div id="message"></div>
+        </div>
+</body>
+
 </html>
