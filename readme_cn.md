@@ -1,16 +1,14 @@
 # ![SVGNest](http://svgnest.com/github/logo2.png)
 
-**SVGNest**: A browser-based vector nesting tool.
+**SVGNest**: 一个基于浏览器的向量排样工具。
 
-**Demo:** [svgnest](http://svgnest.com)
+**Demo:** [svgnest](http://svgnest.com)（需要 [SVG](https://developer.mozilla.org/en-US/docs/Web/SVG) 和 [web workers](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers) 的支持）。移动端提醒：运行这个demo对CPU消耗较大
 
-(requires SVG and webworker support). Mobile warning: running the demo is CPU intensive.
+参考文献(PDF):
 
-references (PDF):
-
-- [López-Camacho *et al.* 2013](http://www.cs.stir.ac.uk/~goc/papers/EffectiveHueristic2DAOR2013.pdf)
-- [Kendall 2000](http://www.graham-kendall.com/papers/k2001.pdf)
-- [E.K. Burke *et al.* 2006](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.440.379&rep=rep1&type=pdf)
+- [López-Camacho *et al.* 2013[^López-Camacho,2013]](http://www.cs.stir.ac.uk/~goc/papers/EffectiveHueristic2DAOR2013.pdf)
+- [Kendall 2000](http://www.graham-kendall.com/papers/k2001.pdf)[^Kendall,2000]
+- [E.K. Burke *et al.* 2006](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.440.379&rep=rep1&type=pdf)[^Burke,2006]
 
 ## 什么是排样？
 
@@ -20,8 +18,7 @@ references (PDF):
 
 我们需要将所有的字母排放到正文形中，尽可能的少使用材料。如果一个正方形不能满足，我们可以找到正方形需求的最小数量。
 
-在CNC的世界里面这个称为[排样](http://sigmanest.com/)，有[软件](http://www.mynesting.com/)在为[工业界客户](http://www.hypertherm.com/en/Products/Automated_cutting/Nesting_software/)
-做[这件事](http://www.autodesk.com/products/trunest/overview)，并且[非常昂贵](http://www.nestfab.com/pricing/)。
+在CNC的世界里面这个称为[排样](http://sigmanest.com/)，有[软件](http://www.mynesting.com/)在为[工业界客户](http://www.hypertherm.com/en/Products/Automated_cutting/Nesting_software/) 做[这件事](http://www.autodesk.com/products/trunest/overview)，并且[非常昂贵](http://www.nestfab.com/pricing/)。
 
 SVGnest是一个免费的、开源的替代品，它使用[^Burke,2006]中的解决这个问题，使用基因算法用于全局优化。它可以工作在任意形状的容器和凹面部件下，并且效果与存在的商业软件可以看齐。
 
@@ -72,11 +69,11 @@ SVGnest是一个免费的、开源的替代品，它使用[^Burke,2006]中的解
 
 如果大的“C”最后排放，凸的空间就没有办法使用，因为所有的部件都已经被排放完成。
 
-为了解决这个问题，我们使用“首次适应降序”启发式算法。大的部件先排放，小的部分后排放。这个是符合直觉的，因为小的部件倾向于扮演“沙子“的角色填充大的部件留下的空隙。
+为了解决这个问题，我们使用“首次使用降充”启发式算法。大的部件先排放，小的部分后排放。这个是符合直觉的，因为小的部件倾向于扮演“沙子“的角色填充大的部件留下的空隙。
 
 ![Good insertion order](http://svgnest.com/github/goodnest.png)
 
-当这个策略给了我们好的开始，我们希望更多的解空间。我们可以简单的随机化插入顺序，但是我们可以使用基因算法做得更好。（了解基因算法可以参考[这篇文章](http://www.ai-junkie.com/ga/intro/gat1.html)）。
+当这个策略给了好的开始，我们就希望更多的解空间。我们可以简单的随机化插入顺序，但是我们可以使用基因算法做得更好。（了解基因算法可以参考[这篇文章](http://www.ai-junkie.com/ga/intro/gat1.html)）。
 
 ## 评估拟合
 
@@ -90,25 +87,21 @@ SVGnest是一个免费的、开源的替代品，它使用[^Burke,2006]中的解
 
 因为基因中小的突变在整个拟合过程中会导致潜在的大的变化，种群的个体会变得非常小。通过缓存NFP，新的个体的评估速度会非常快。
 
-## Performance
+## 性能
 
 ![SVGnest comparison](http://svgnest.com/github/comparison1.png)
 
-Performs similarly to commercial software, after both have run for about 5 minutes.
+与商业软件相比，共同运行5分钟后效果相似。
 
-## Configuration parameters
+## 配置参数
 
-- **Space between parts:** Minimum space between parts (eg. for laser kerf, CNC offset etc.)
-- **Curve tolerance:** The maximum error allowed for linear approximations of Bezier paths and arcs, in SVG units or "
-  pixels". Decrease this value if curved parts appear to slightly overlap.
-- **Part rotations:** The *possible* number of rotations to evaluate for each part. eg. 4 for only the cardinal
-  directions. Larger values may improve results, but will be slower to converge.
-- **GA population:** The population size for the Genetic Algorithm
-- **GA mutation rate:** The probability of mutation for each gene or part placement. Values from 1-50
-- **Part in part:** When enabled, places parts in the holes of other parts. This is off by default as it can be resource
-  intensive
-- **Explore concave areas:** When enabled, solves the concave edge case at a cost of some performance and placement
-  robustness:
+- **Space between parts:** 部件之间的最小距离（如：激光切口、CNC 的偏移量等）
+- **Curve tolerance:** Bezier路径或者弧的线性逼近容易的最大误差，设置为SVG的单元或者像素。如果曲面部件有轻度重叠可以减少这个值。
+- **Part rotations:** 为每个部件估计的*可能的*旋转次数。如：4只代表基本方向。更大的值可以改进结果，但是会收敛得更慢。
+- **GA population:** 基因算法的种群大小。
+- **GA mutation rate:** 每个基因或者部件的位置发生突变的概率。值从1~50
+- **Part in part:** 启用后，将部件置于其他部件的孔洞中。默认情况下是关闭的，因为它可能是资源密集型计算。
+- **Explore concave areas:** 启用后，付出一些性能和放置的稳健性为代价解决凹面的问题
 
 ![Concave flag example](http://svgnest.com/github/concave.png)
 
@@ -121,5 +114,6 @@ Performs similarly to commercial software, after both have run for about 5 minut
 
 # 参考文献
 
-[^Burke,2006]:Burke E K, Hellier R S R, Kendall G, et al. Complete and robust no-fit polygon generation for the
-irregular stock cutting problem[J]. European Journal of Operational Research, 2007, 179(1): 27-49.
+[^Burke,2006]:Burke E K, Hellier R S R, Kendall G, et al. Complete and robust no-fit polygon generation for the irregular stock cutting problem[J]. European Journal of Operational Research, 2007, 179(1): 27-49.
+[^Kendall,2000]:Kendall G. Applying meta-heuristic algorithms to the nesting problem utilising the no fit polygon[D]. University of Nottingham, 2000.
+[^López-Camacho,2013]:López-Camacho E, Ochoa G, Terashima-Marín H, et al. An effective heuristic for the two-dimensional irregular bin packing problem[J]. Annals of Operations Research, 2013, 206(1): 241-264.
