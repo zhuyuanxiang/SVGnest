@@ -6,7 +6,7 @@
 
 参考文献(PDF):
 
-- [López-Camacho *et al.* 2013[^López-Camacho,2013]](http://www.cs.stir.ac.uk/~goc/papers/EffectiveHueristic2DAOR2013.pdf)
+- [López-Camacho *et al.* 2013](http://www.cs.stir.ac.uk/~goc/papers/EffectiveHueristic2DAOR2013.pdf)[^López-Camacho,2013]
 - [Kendall 2000](http://www.graham-kendall.com/papers/k2001.pdf)[^Kendall,2000]
 - [E.K. Burke *et al.* 2006](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.440.379&rep=rep1&type=pdf)[^Burke,2006]
 
