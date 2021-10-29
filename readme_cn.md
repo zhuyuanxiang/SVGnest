@@ -2,13 +2,19 @@
 
 **SVGNest**: 一个基于浏览器的向量排样工具。
 
-**Demo:** [svgnest](http://svgnest.com)（需要 [SVG](https://developer.mozilla.org/en-US/docs/Web/SVG) 和 [web workers](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers) 的支持）。移动端提醒：运行这个demo对CPU消耗较大
+**Demo:** [svgnest](http://svgnest.com)（需要 [SVG](https://developer.mozilla.org/en-US/docs/Web/SVG) 和 [web workers](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers) 的支持）。
+
+注1：移动端提醒：运行这个demo对CPU消耗较大
+
+注2：SVG 基于 XML 定义的图形文件的输入格式，主要用于浏览器，其他平台也可以使用
+
+注3：web workers 用于改善 JavaScript 单线程限制，能够并发使用多核 CPU 的性能
 
 参考文献(PDF):
 
-- [López-Camacho *et al.* 2013](http://www.cs.stir.ac.uk/~goc/papers/EffectiveHueristic2DAOR2013.pdf)[^López-Camacho,2013]
-- [Kendall 2000](http://www.graham-kendall.com/papers/k2001.pdf)[^Kendall,2000]
-- [E.K. Burke *et al.* 2006](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.440.379&rep=rep1&type=pdf)[^Burke,2006]
+- [López-Camacho *et al.* 2013](http://www.cs.stir.ac.uk/~goc/papers/EffectiveHueristic2DAOR2013.pdf)[^López-Camacho,2013]，[中文翻译](papers/CN/López-Camacho_An%20effective%20heuristic%20for%20the%20two-dimensional%20irregular%20bin%20packing%20problem.md)
+- [Kendall 2000](http://www.graham-kendall.com/papers/k2001.pdf)[^Kendall,2000]，[中文翻译](papers/CN/Kendall_Applying Meta-Heuristic Algorithms to the Nesting Problem Utilising the No Fit Polygon.md)
+- [E.K. Burke *et al.* 2006](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.440.379&rep=rep1&type=pdf)[^Burke,2006]，[中文翻译](papers/CN/Burke_Complete and robust no-fit polygon generation for the irregular stock cutting problem.md)
 
 ## 什么是排样？
 
